@@ -7,7 +7,7 @@
 const int stepsPerRevolution = 100;
 const int num_step = 7;
 
-const int IRSensor = A5;
+const int IRSensor = A9;
 const int buttonPin = 6;
 const int emergencyPin = 7;
 
