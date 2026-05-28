@@ -242,8 +242,8 @@ class SimulatorGUI:
         self.voice_input_rate = VOICE_SAMPLE_RATE
         self.voice_input_device_name = ""
         self.voice_buffer = []
-        self.voice_pending_recipe = None
-        self.voice_pending_count = 1
+        self.voice_pending_action = None
+        self._voice_worker_thread = None
         self.voice_status_label = None
         self.voice_transcript_label = None
         self.voice_anim_label = None
@@ -1560,10 +1560,10 @@ class SimulatorGUI:
         self._set_background("dashboard/image_1.png")
         self.voice_running = True
         self.voice_state = "listen_command"
+        self._voice_stop_stream()
         self._voice_clear_queue()
         self.voice_buffer = []
-        self.voice_pending_recipe = None
-        self.voice_pending_count = 1
+        self.voice_pending_action = None
 
         Label(self.root, text="Voice Control", font=("Quicksand", 24, "bold")).place(x=0, y=30, width=480)
         self.voice_anim_label = Label(self.root, text="Listening...", font=("Quicksand", 18, "bold"))
@@ -1588,15 +1588,24 @@ class SimulatorGUI:
 
     def _voice_set_status(self, text: str) -> None:
         if self.voice_status_label:
-            self.voice_status_label.config(text=text)
+            try:
+                self.voice_status_label.config(text=text)
+            except tk.TclError:
+                pass
 
     def _voice_set_transcript(self, text: str) -> None:
         if self.voice_transcript_label:
-            self.voice_transcript_label.config(text=f"Heard: {text}")
+            try:
+                self.voice_transcript_label.config(text=f"Heard: {text}")
+            except tk.TclError:
+                pass
 
     def _voice_set_debug(self, text: str) -> None:
         if self.voice_debug_label:
-            self.voice_debug_label.config(text=text)
+            try:
+                self.voice_debug_label.config(text=text)
+            except tk.TclError:
+                pass
 
     def _voice_ensure_model(self) -> None:
         if self.voice_model is None:
@@ -1688,8 +1697,10 @@ class SimulatorGUI:
                 self._voice_stop_stream()
                 return
 
-            self.root.after(0, self._voice_set_status, "Say: '<number> <recipe name>'")
-            threading.Thread(target=self._voice_worker, daemon=True).start()
+            self.root.after(0, self._voice_set_status, "Say: '<number> <recipe or ingredient name>'")
+            if self._voice_worker_thread is None or not self._voice_worker_thread.is_alive():
+                self._voice_worker_thread = threading.Thread(target=self._voice_worker, daemon=True)
+                self._voice_worker_thread.start()
         except Exception as exc:
             self.voice_running = False
             self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
@@ -1714,6 +1725,8 @@ class SimulatorGUI:
     def _voice_worker(self) -> None:
         import numpy as np
         recipes = [r.name for r in db.list_recipes(DB_PATH)]
+        dry_containers = db.get_dry_containers(DB_PATH)
+        wet_containers = db.get_wet_containers(DB_PATH)
 
         sample_rate = int(self.voice_input_rate or VOICE_SAMPLE_RATE)
         max_chunk = int(sample_rate * VOICE_MAX_CHUNK_SEC)
@@ -1767,7 +1780,7 @@ class SimulatorGUI:
                     vad_filter=True,
                     initial_prompt=(
                         "Transcribe only spoken commands for a dispenser. "
-                        "Expected words are numbers one to ten, recipe names, yes, and no."
+                        "Expected words are numbers, recipe names, ingredient names, yes, and no."
                     ),
                 )
                 text = " ".join(seg.text for seg in segments).strip()
@@ -1781,54 +1794,126 @@ class SimulatorGUI:
             self.root.after(0, self._voice_set_transcript, text)
 
             if self.voice_state == "listen_command":
-                recipe, count = self._voice_parse_recipe(text, recipes)
-                if recipe:
-                    self.voice_pending_recipe = recipe
-                    self.voice_pending_count = count
+                action = self._voice_parse_command(text, recipes, dry_containers, wet_containers)
+                if action:
+                    self.voice_pending_action = action
                     self.voice_state = "confirm"
-                    self.root.after(0, self._voice_set_status, f"Detected {recipe} x{count}. Say yes or no.")
+                    if action.get("kind") == "recipe":
+                        summary = f"{action.get('name')} x{action.get('count')}"
+                    else:
+                        summary = f"{action.get('name')} {action.get('amount')} {action.get('unit')}"
+                    self.root.after(0, self._voice_set_status, f"Detected {summary}. Say yes or no.")
                 else:
-                    self.root.after(0, self._voice_set_status, "Say: '<number> <recipe name>'")
+                    self.root.after(0, self._voice_set_status, "Say: '<number> <recipe or ingredient name>'")
             elif self.voice_state == "confirm":
                 decision = self._voice_parse_yes_no(text)
                 if decision == "yes":
                     self.root.after(0, self._voice_execute_recipe)
                 elif decision == "no":
                     self.voice_state = "listen_command"
-                    self.root.after(0, self._voice_set_status, "Okay. Say: '<number> <recipe name>'")
+                    self.root.after(0, self._voice_set_status, "Okay. Say: '<number> <recipe or ingredient name>'")
 
-    def _voice_parse_recipe(self, text: str, recipes):
+    def _voice_parse_command(self, text: str, recipes, dry_containers, wet_containers):
+        """Parse '<number> <name>' where name can be a recipe or a dry/wet container."""
         text = text.strip().lower()
         if not text:
-            return None, None
+            return None
 
-        text = re.sub(r"[^a-z0-9\s]", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
+        norm_text = re.sub(r"[^a-z0-9\s]", " ", text)
+        norm_text = re.sub(r"\s+", " ", norm_text).strip()
+        if not norm_text:
+            return None
 
         number_words = {
             "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
         }
 
-        count = None
-        digit_match = re.search(r"\b([1-9]|10)\b", text)
-        if digit_match:
-            count = int(digit_match.group(1))
-        else:
-            for word, value in number_words.items():
-                if re.search(rf"\b{word}\b", text):
-                    count = value
-                    break
+        def norm_name(name: str) -> str:
+            name = (name or "").strip().lower()
+            name = re.sub(r"[^a-z0-9\s]", " ", name)
+            name = re.sub(r"\s+", " ", name).strip()
+            return name
 
-        if count is None:
-            return None, None
+        def extract_qty(prefix: str):
+            prefix = (prefix or "").strip()
+            if not prefix:
+                return None
+            digits = re.findall(r"\b\d+\b", prefix)
+            if digits:
+                try:
+                    return int(digits[-1])
+                except ValueError:
+                    return None
+            tokens = prefix.split()
+            for token in reversed(tokens):
+                if token in number_words:
+                    return number_words[token]
+            return None
 
-        recipe = None
-        for name in recipes:
-            if name and name.lower() in text:
-                recipe = name
-                break
-        return recipe, count
+        candidates = []
+        # Each entry: (score, priority, -idx, action_dict)
+        priority = {"recipe": 3, "wet": 2, "dry": 1}
+
+        for name in recipes or []:
+            n = norm_name(name)
+            if not n:
+                continue
+            idx = norm_text.find(n)
+            if idx < 0:
+                continue
+            qty = extract_qty(norm_text[:idx])
+            if qty is None:
+                continue
+            count = max(1, min(10, int(qty)))
+            action = {"kind": "recipe", "name": name, "count": count}
+            candidates.append((len(n), priority["recipe"], -idx, action))
+
+        for cont in dry_containers or []:
+            n = norm_name(getattr(cont, "name", ""))
+            if not n:
+                continue
+            idx = norm_text.find(n)
+            if idx < 0:
+                continue
+            qty = extract_qty(norm_text[:idx])
+            if qty is None:
+                continue
+            amount = max(1, min(9999, int(qty)))
+            action = {
+                "kind": "dry",
+                "id": int(getattr(cont, "cid", 0)),
+                "name": getattr(cont, "name", ""),
+                "amount": amount,
+                "unit": "g",
+            }
+            candidates.append((len(n), priority["dry"], -idx, action))
+
+        for cont in wet_containers or []:
+            n = norm_name(getattr(cont, "name", ""))
+            if not n:
+                continue
+            idx = norm_text.find(n)
+            if idx < 0:
+                continue
+            qty = extract_qty(norm_text[:idx])
+            if qty is None:
+                continue
+            amount = max(1, min(9999, int(qty)))
+            action = {
+                "kind": "wet",
+                "id": int(getattr(cont, "cid", 0)),
+                "name": getattr(cont, "name", ""),
+                "amount": amount,
+                "unit": "ml",
+            }
+            candidates.append((len(n), priority["wet"], -idx, action))
+
+        if not candidates:
+            return None
+
+        candidates.sort(reverse=True)
+        return candidates[0][3]
 
     def _voice_parse_yes_no(self, text: str):
         text = text.strip().lower()
@@ -1839,19 +1924,93 @@ class SimulatorGUI:
         return None
 
     def _voice_execute_recipe(self) -> None:
+        action = self.voice_pending_action
         self.voice_state = "idle"
         self._voice_stop_stream()
-        recipes = db.list_recipes(DB_PATH)
-        match = [r for r in recipes if r.name == self.voice_pending_recipe]
-        if not match:
-            if self.voice_status_label:
-                self.voice_status_label.config(text="Recipe not found.")
+
+        if not action or not isinstance(action, dict) or not action.get("kind"):
             self.voice_state = "listen_command"
-            self._voice_start_stream()
+            try:
+                self._voice_start_stream()
+            except Exception as exc:
+                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
             return
-        self.active_recipe_id = match[0].rid
-        self.batch_count = self.voice_pending_count
-        self.start_dispense()
+
+        if self.serial is None:
+            self.voice_state = "listen_command"
+            self.root.after(0, self._voice_set_status, "No serial connection. Open Device Setup.")
+            try:
+                self._voice_start_stream()
+            except Exception as exc:
+                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
+            return
+
+        kind = action.get("kind")
+        if kind == "recipe":
+            recipes = db.list_recipes(DB_PATH)
+            match = [r for r in recipes if r.name == action.get("name")]
+            if not match:
+                self.voice_state = "listen_command"
+                self.root.after(0, self._voice_set_status, "Recipe not found.")
+                try:
+                    self._voice_start_stream()
+                except Exception as exc:
+                    self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
+                return
+            self.active_recipe_id = match[0].rid
+            self.batch_count = int(action.get("count") or 1)
+            self.start_dispense()
+            return
+
+        cid = int(action.get("id") or 0)
+        amount = int(action.get("amount") or 0)
+        if cid <= 0 or amount <= 0:
+            self.voice_state = "listen_command"
+            self.root.after(0, self._voice_set_status, "Invalid ingredient command.")
+            try:
+                self._voice_start_stream()
+            except Exception as exc:
+                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
+            return
+
+        self.root.after(0, self._voice_set_status, "Sending command...")
+        if kind == "dry":
+            steps = 2
+            for c in db.get_dry_containers(DB_PATH):
+                if c.cid == cid:
+                    steps = int(c.steps_per_gram or 2)
+                    break
+            payload = _build_single_dispense_payload_fallback(
+                "D",
+                cid,
+                amount,
+                steps_per_gram=steps,
+            )
+            status = self._serial_send_wait_status(payload, timeout=8.0)
+            if status == "STATUS:OK":
+                db.apply_dry_dispense(DB_PATH, [(cid, amount)])
+        else:
+            ms_per_ml = 1000
+            for c in db.get_wet_containers(DB_PATH):
+                if c.cid == cid:
+                    ms_per_ml = int(c.ms_per_ml or 1000)
+                    break
+            payload = _build_single_dispense_payload_fallback(
+                "W",
+                cid,
+                amount,
+                ms_per_ml=ms_per_ml,
+            )
+            status = self._serial_send_wait_status(payload, timeout=8.0)
+            if status == "STATUS:OK":
+                db.apply_wet_dispense(DB_PATH, [(cid, amount)])
+
+        name = f"Single: {action.get('name') or ''}".strip()
+        db.log_dispense(DB_PATH, time.strftime("%Y-%m-%d %H:%M:%S"), name, 1, self._format_status(status))
+        if self.voice_running:
+            self.show_voice()
+        else:
+            self.show_dashboard()
 
     def run(self) -> None:
         self.root.mainloop()
