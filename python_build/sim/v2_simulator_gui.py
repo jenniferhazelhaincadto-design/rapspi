@@ -817,8 +817,106 @@ class SimulatorGUI:
 
         Button(self.root, text="Device Setup", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
              command=self.show_device_setup).place(x=40, y=520, width=400, height=70)
+        Button(self.root, text="Ingredient\nLevel", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
+             command=self.show_ingredient_levels).place(x=40, y=600, width=400, height=70)
         Button(self.root, text="Back", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
                command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
+
+    def show_ingredient_levels(self) -> None:
+        self.clear()
+        self._set_background("dashboard/image_1.png")
+        Label(self.root, text="Ingredient Levels", font=("Quicksand", 22, "bold")).place(x=0, y=20, width=480)
+
+        dry_containers = db.get_dry_containers(DB_PATH)
+        wet_containers = db.get_wet_containers(DB_PATH)
+
+        dry_entries = []
+        wet_entries = []
+
+        Label(self.root, text="Dry (g)", font=("Quicksand", 16, "bold"), anchor="w").place(x=20, y=70, width=440, height=24)
+        Label(self.root, text="Name", font=("Quicksand", 12, "bold"), anchor="w").place(x=70, y=92, width=190, height=24)
+        Label(self.root, text="Left", font=("Quicksand", 12, "bold"), anchor="center").place(x=270, y=92, width=176, height=24)
+
+        row_h = 46
+        row_step = 50
+        y = 122
+        for cont in dry_containers:
+            Label(self.root, text=f"{cont.cid}", font=("Quicksand", 16, "bold")).place(x=20, y=y, width=40, height=row_h)
+            Label(self.root, text=cont.name, font=("Quicksand", 14, "bold"), anchor="w").place(x=70, y=y, width=190, height=row_h)
+
+            rem_var = StringVar(value=str(cont.remaining_g))
+            Button(self.root, text="-", font=("Quicksand", 17, "bold"),
+                   command=lambda v=rem_var: self._step_int_var(v, -10, 0, 9999)).place(x=270, y=y, width=48, height=row_h)
+            Label(self.root, textvariable=rem_var, font=("Quicksand", 15, "bold"), anchor="center").place(x=322, y=y, width=72, height=row_h)
+            Button(self.root, text="+", font=("Quicksand", 17, "bold"),
+                   command=lambda v=rem_var: self._step_int_var(v, 10, 0, 9999)).place(x=398, y=y, width=48, height=row_h)
+
+            dry_entries.append((cont, rem_var))
+            y += row_step
+
+        Label(self.root, text="Wet (ml)", font=("Quicksand", 16, "bold"), anchor="w").place(x=20, y=y + 10, width=440, height=24)
+        y += 32
+        Label(self.root, text="Name", font=("Quicksand", 12, "bold"), anchor="w").place(x=70, y=y, width=190, height=24)
+        Label(self.root, text="Left", font=("Quicksand", 12, "bold"), anchor="center").place(x=270, y=y, width=176, height=24)
+        y += 30
+
+        for cont in wet_containers:
+            Label(self.root, text=f"{cont.cid}", font=("Quicksand", 16, "bold")).place(x=20, y=y, width=40, height=row_h)
+            Label(self.root, text=cont.name, font=("Quicksand", 14, "bold"), anchor="w").place(x=70, y=y, width=190, height=row_h)
+
+            rem_var = StringVar(value=str(cont.remaining_ml))
+            Button(self.root, text="-", font=("Quicksand", 17, "bold"),
+                   command=lambda v=rem_var: self._step_int_var(v, -10, 0, 9999)).place(x=270, y=y, width=48, height=row_h)
+            Label(self.root, textvariable=rem_var, font=("Quicksand", 15, "bold"), anchor="center").place(x=322, y=y, width=72, height=row_h)
+            Button(self.root, text="+", font=("Quicksand", 17, "bold"),
+                   command=lambda v=rem_var: self._step_int_var(v, 10, 0, 9999)).place(x=398, y=y, width=48, height=row_h)
+
+            wet_entries.append((cont, rem_var))
+            y += row_step
+
+        def _save_levels(reset_full: bool = False) -> None:
+            dry_items = []
+            for cont, rem_var in dry_entries:
+                cap = int(cont.capacity_g or 1000)
+                if reset_full:
+                    rem = cap
+                    rem_var.set(str(rem))
+                else:
+                    try:
+                        rem = int(rem_var.get())
+                    except ValueError:
+                        rem = int(cont.remaining_g or cap)
+                    rem = max(0, min(cap, rem))
+                    rem_var.set(str(rem))
+                dry_items.append((cont.name, int(cont.steps_per_gram or 2), cap, rem))
+            db.set_dry_containers(DB_PATH, dry_items)
+
+            wet_items = []
+            for cont, rem_var in wet_entries:
+                cap = int(cont.capacity_ml or 1000)
+                if reset_full:
+                    rem = cap
+                    rem_var.set(str(rem))
+                else:
+                    try:
+                        rem = int(rem_var.get())
+                    except ValueError:
+                        rem = int(cont.remaining_ml or cap)
+                    rem = max(0, min(cap, rem))
+                    rem_var.set(str(rem))
+                wet_items.append((cont.name, int(cont.ms_per_ml or 1000), cap, rem))
+            db.set_wet_containers(DB_PATH, wet_items)
+
+        def save():
+            _save_levels(reset_full=False)
+            self.show_settings_panel()
+
+        def reset_levels():
+            _save_levels(reset_full=True)
+
+        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_settings_panel).place(x=20, y=700, width=140, height=70)
+        Button(self.root, text="Reset", font=("Quicksand", 18, "bold"), command=reset_levels).place(x=170, y=700, width=140, height=70)
+        Button(self.root, text="Save", font=("Quicksand", 18, "bold"), command=save).place(x=320, y=700, width=140, height=70)
 
     def show_dry_settings(self) -> None:
         self.clear()
@@ -1379,7 +1477,7 @@ class SimulatorGUI:
         self.clear()
         self._set_background("dispensing/image_1.png")
         Label(self.root, text="Ingredient Levels", font=("Quicksand", 22, "bold")).place(x=0, y=20, width=480)
-        status_var = StringVar(value="Dry container levels (DB estimated)")
+        status_var = StringVar(value="Dry container levels")
         Label(self.root, textvariable=status_var, font=("Quicksand", 12)).place(x=40, y=80, width=400, height=40)
 
         y = 140
@@ -1391,7 +1489,7 @@ class SimulatorGUI:
             ).place(x=40, y=y, width=400, height=24)
             y += 28
         y += 10
-        Label(self.root, text="Wet (estimated ml)", font=("Quicksand", 12, "bold")).place(x=40, y=y, width=400, height=24)
+        Label(self.root, text="Wet (ml)", font=("Quicksand", 12, "bold")).place(x=40, y=y, width=400, height=24)
         y += 28
         for cont in db.get_wet_containers(DB_PATH):
             Label(
