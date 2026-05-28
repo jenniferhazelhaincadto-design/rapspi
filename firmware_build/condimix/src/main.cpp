@@ -14,6 +14,14 @@ const int emergencyPin = 7;
 const int PUMP_COUNT = 4;                      
 const int pumpPins[PUMP_COUNT] = {2, 3, 4, 5};
 
+// Most relay boards used for pumps are active-low:
+//   LOW  = relay ON (pump powered)
+//   HIGH = relay OFF
+// If your driver is active-high, set this to 0.
+#define PUMP_ACTIVE_LOW 1
+static const uint8_t PUMP_ACTIVE_LEVEL = PUMP_ACTIVE_LOW ? LOW : HIGH;
+static const uint8_t PUMP_INACTIVE_LEVEL = PUMP_ACTIVE_LOW ? HIGH : LOW;
+
 const int HX711_dout_1 = 47;
 const int HX711_sck_1 = 46;
 const int HX711_dout_2 = 50;
@@ -86,7 +94,7 @@ bool pollStop() {
 
 void stopAllOutputs() {
   for (int i = 0; i < PUMP_COUNT; i++) {
-    digitalWrite(pumpPins[i], LOW);
+    digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
   }
   for (int i = 0; i < num_step; i++) {
     for (int j = 0; j < 4; j++) {
@@ -122,7 +130,7 @@ void runPump(int pumpIndex, unsigned long durationMs) {
   if (pumpIndex < 0 || pumpIndex >= PUMP_COUNT || durationMs == 0) {
     return;
   }
-  digitalWrite(pumpPins[pumpIndex], HIGH);
+  digitalWrite(pumpPins[pumpIndex], PUMP_ACTIVE_LEVEL);
   unsigned long startMs = millis();
   while (millis() - startMs < durationMs) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
@@ -130,7 +138,7 @@ void runPump(int pumpIndex, unsigned long durationMs) {
     }
     delay(5);
   }
-  digitalWrite(pumpPins[pumpIndex], LOW);
+  digitalWrite(pumpPins[pumpIndex], PUMP_INACTIVE_LEVEL);
 }
 
 bool updateLoadCells() {
@@ -325,7 +333,7 @@ void setup() {
 
   for (int i = 0; i < PUMP_COUNT; i++) {
     pinMode(pumpPins[i], OUTPUT);
-    digitalWrite(pumpPins[i], LOW);
+    digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
   }
 
   for (int i = 0; i < num_step; i++) {
@@ -414,6 +422,7 @@ void loop() {
     handleIr();
   } else if (strcmp(cmd, "stop") == 0) {
     stopRequested = true;
+    stopAllOutputs();
     Serial.println("STATUS:STOPPED");
   } else {
     Serial.println("STATUS:ERROR");
