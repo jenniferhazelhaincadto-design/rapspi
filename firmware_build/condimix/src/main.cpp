@@ -307,6 +307,16 @@ void handleLevels() {
   Serial.println();
 }
 
+void handleIr() {
+  StaticJsonDocument<128> doc;
+  doc["type"] = "ir";
+  int raw = digitalRead(IRSensor);
+  doc["raw"] = raw;
+  doc["detected"] = (raw == LOW);
+  serializeJson(doc, Serial);
+  Serial.println();
+}
+
 void setup() {
   Serial.begin(9600);
   pinMode(IRSensor, INPUT);
@@ -400,6 +410,8 @@ void loop() {
     handleClean();
   } else if (strcmp(cmd, "levels") == 0) {
     handleLevels();
+  } else if (strcmp(cmd, "ir") == 0) {
+    handleIr();
   } else if (strcmp(cmd, "stop") == 0) {
     stopRequested = true;
     Serial.println("STATUS:STOPPED");

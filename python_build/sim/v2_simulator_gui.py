@@ -457,6 +457,59 @@ class SimulatorGUI:
         self._debug("RX timeout waiting for levels data")
         return None
 
+    def _serial_send_wait_ir(self, timeout: float = 1.2) -> Optional[bool]:
+        if not self.serial:
+            return None
+        self._serial_read_failed = False
+        payload = _legacy_to_json_payload('{"cmd":"ir"}\n')
+        self._debug(f"TX ({self.serial.port} @ {self.serial.baud}): {payload.strip()}")
+        try:
+            self.serial.send(payload)
+        except Exception as exc:
+            self._debug(f"Serial send error: {exc}")
+            return None
+
+        start = time.time()
+        while time.time() - start < timeout:
+            line = self._serial_read_line_safe()
+            if self._serial_read_failed:
+                return None
+            if not line:
+                continue
+            self._debug(f"RX: {line}")
+            if line.startswith("STATUS:"):
+                continue
+            if not line.startswith("{"):
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(data, dict) or data.get("type") != "ir":
+                continue
+            detected = data.get("detected")
+            if isinstance(detected, bool):
+                return detected
+            raw = data.get("raw")
+            if raw in (0, 1):
+                return int(raw) == 0
+
+        self._debug("RX timeout waiting for IR data")
+        return None
+
+    def show_container_not_detected(self) -> None:
+        self.clear()
+        self._set_background("dashboard/image_1.png")
+        Label(self.root, text="Container Not Detected", font=("Quicksand", 22, "bold")).place(x=0, y=220, width=480, height=60)
+        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
+
+    def _guard_container_detected(self, action) -> None:
+        detected = self._serial_send_wait_ir()
+        if detected is True:
+            action()
+            return
+        self.show_container_not_detected()
+
     def _serial_send_no_wait(self, payload: str) -> None:
         if not self.serial:
             return
@@ -549,9 +602,9 @@ class SimulatorGUI:
         row_gap = 20
 
         Button(self.root, bg=btn_bg, fg=fg, text="Recipe\nMenu", font=("Quicksand", 18, "bold"),
-               command=self.show_recipe_menu).place(x=left_x, y=top_y, width=btn_w, height=btn_h)
+               command=lambda: self._guard_container_detected(self.show_recipe_menu)).place(x=left_x, y=top_y, width=btn_w, height=btn_h)
         Button(self.root, bg=btn_bg, fg=fg, text="Dispense\nIngredient", font=("Quicksand", 18, "bold"),
-             command=self.show_single_dispense).place(x=right_x, y=top_y, width=btn_w, height=btn_h)
+             command=lambda: self._guard_container_detected(self.show_single_dispense)).place(x=right_x, y=top_y, width=btn_w, height=btn_h)
 
         row2_y = top_y + btn_h + row_gap
         Button(self.root, bg=btn_bg, fg=fg, text="Cleaning\nMode", font=("Quicksand", 18, "bold"),
@@ -572,7 +625,7 @@ class SimulatorGUI:
                command=self.show_lock).place(x=right_x, y=row4_y, width=btn_w, height=btn_h)
 
         Button(self.root, bg=btn_bg, fg=fg, text="Voice PTT", font=("Quicksand", 18, "bold"),
-               command=self.show_voice).place(x=150, y=row4_y + btn_h + 20, width=btn_w, height=btn_h)
+               command=lambda: self._guard_container_detected(self.show_voice)).place(x=150, y=row4_y + btn_h + 20, width=btn_w, height=btn_h)
 
     def show_recipe_menu(self):
         self.clear()
@@ -1441,8 +1494,8 @@ class SimulatorGUI:
         Button(self.root, text="Refresh", font=("Quicksand", 18, "bold"), command=refresh_ports).place(x=40, y=320, width=180, height=70)
         Button(self.root, text="Connect", font=("Quicksand", 18, "bold"), command=connect).place(x=240, y=320, width=180, height=70)
 
-        if not initial:
-            Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_settings_panel).place(x=140, y=700, width=200, height=70)
+        back_target = self.show_dashboard if initial else self.show_settings_panel
+        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=back_target).place(x=140, y=700, width=200, height=70)
 
     def show_edit_recipe(self) -> None:
         self.clear()
