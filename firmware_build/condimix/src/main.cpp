@@ -220,17 +220,22 @@ void moveToContainer(int target) {
   }
 }
 
-void dispenseDry(int targetGrams, int containerId) {
+void dispenseDry(int targetGrams, int containerId, int stepsPerGram) {
   if (targetGrams <= 0 || containerId < 1 || containerId > 6) {
     return;
   }
+  if (stepsPerGram <= 0) {
+    stepsPerGram = 2;
+  }
+
   stopAllOutputs();
-  tareLoadCell(containerId);
-  while (getLoadCellData(containerId) < targetGrams) {
+  long revolutions = (long)targetGrams * (long)stepsPerGram;
+  for (long i = 0; i < revolutions; i++) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
     }
     stepper[containerId - 1].step(-stepsPerRevolution);
+    delay(5);
   }
 }
 
@@ -249,8 +254,9 @@ void handleDispense(JsonDocument &doc) {
     }
     int id = item["id"] | 0;
     int grams = item["g"] | 0;
+    int stepsPerGram = item["steps_per_gram"] | 2;
     moveToContainer(id);
-    dispenseDry(grams, id);
+    dispenseDry(grams, id, stepsPerGram);
   }
 
   if (!stopRequested && !emergencyLatched) {

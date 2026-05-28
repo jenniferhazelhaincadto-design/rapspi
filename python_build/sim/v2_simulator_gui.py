@@ -698,7 +698,9 @@ class SimulatorGUI:
         wet_list = [{"id": w[0], "ml": w[1] * self.batch_count, "ms_per_ml": wet_containers.get(w[0], 100)} for w in wet]
 
         payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
-        status = self._serial_send_wait_status(payload, timeout=20.0)
+        wet_seconds = sum((float(item.get("ml") or 0.0) * float(item.get("ms_per_ml") or 0.0)) for item in wet_list) / 1000.0
+        timeout_s = max(30.0, wet_seconds + (180.0 if dry_list else 15.0))
+        status = self._serial_send_wait_status(payload, timeout=timeout_s)
         if status == "STATUS:OK":
             used_dry = [(item["id"], item["g"]) for item in dry_list]
             db.apply_dry_dispense(DB_PATH, used_dry)
@@ -1437,7 +1439,12 @@ class SimulatorGUI:
             name = f"Single: {selection['name']}"
             status_var.set("Sending command...")
             self.root.update_idletasks()
-            status = self._serial_send_wait_status(payload, timeout=8.0)
+            if selection["type"] == "wet":
+                wet_seconds = (float(amount) * float(selection.get("ms_per_ml") or 0.0)) / 1000.0
+                timeout_s = max(30.0, wet_seconds + 15.0)
+            else:
+                timeout_s = 180.0
+            status = self._serial_send_wait_status(payload, timeout=timeout_s)
             if status == "STATUS:OK" and selection["type"] == "dry":
                 db.apply_dry_dispense(DB_PATH, [(selection["id"], amount)])
             if status == "STATUS:OK" and selection["type"] == "wet":
@@ -2137,7 +2144,7 @@ class SimulatorGUI:
                 amount,
                 steps_per_gram=steps,
             )
-            status = self._serial_send_wait_status(payload, timeout=8.0)
+            status = self._serial_send_wait_status(payload, timeout=180.0)
             if status == "STATUS:OK":
                 db.apply_dry_dispense(DB_PATH, [(cid, amount)])
         else:
@@ -2152,7 +2159,9 @@ class SimulatorGUI:
                 amount,
                 ms_per_ml=ms_per_ml,
             )
-            status = self._serial_send_wait_status(payload, timeout=8.0)
+            wet_seconds = (float(amount) * float(ms_per_ml)) / 1000.0
+            timeout_s = max(30.0, wet_seconds + 15.0)
+            status = self._serial_send_wait_status(payload, timeout=timeout_s)
             if status == "STATUS:OK":
                 db.apply_wet_dispense(DB_PATH, [(cid, amount)])
 
