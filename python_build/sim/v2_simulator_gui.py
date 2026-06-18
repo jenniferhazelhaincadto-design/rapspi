@@ -309,7 +309,6 @@ class SimulatorGUI:
         self.root.overrideredirect(True)
         self.root.geometry(f"{sw}x{sh}+0+0")
         self.root.attributes("-topmost", True)
-        self.root.attributes("-fullscreen", True)
         self.root.lift()
         self.root.focus_force()
 
@@ -505,10 +504,16 @@ class SimulatorGUI:
 
     def _guard_container_detected(self, action) -> None:
         detected = self._serial_send_wait_ir()
-        if detected is True:
+        if detected is False:
+            self.show_container_not_detected()
+            return
+
+        if detected is None:
+            self._debug("IR check unavailable; continuing without container guard")
+
+        if detected is True or detected is None:
             action()
             return
-        self.show_container_not_detected()
 
     def _serial_send_no_wait(self, payload: str) -> None:
         if not self.serial:
