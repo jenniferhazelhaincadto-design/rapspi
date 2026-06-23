@@ -192,7 +192,7 @@ class SimulatorGUI:
         self._kiosk_mode = True
         self.root.bind("<Escape>", self._exit_kiosk)
         self.root.bind("<F11>", self._toggle_kiosk)
-        # Apply after window creation so VNC/GNOME honors borderless fullscreen reliably.
+        # Apply after window creation so Tk can enter native fullscreen cleanly.
         self.root.after(50, self._apply_kiosk_mode)
 
         # The UI was designed for 800px height. On GNOME with a top bar, available
@@ -304,10 +304,8 @@ class SimulatorGUI:
 
     def _apply_kiosk_mode(self, _event=None) -> None:
         self._kiosk_mode = True
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        self.root.overrideredirect(True)
-        self.root.geometry(f"{sw}x{sh}+0+0")
+        self.root.overrideredirect(False)
+        self.root.attributes("-fullscreen", True)
         self.root.attributes("-topmost", True)
         self.root.lift()
         self.root.focus_force()
@@ -496,10 +494,12 @@ class SimulatorGUI:
         self._debug("RX timeout waiting for IR data")
         return None
 
-    def show_container_not_detected(self) -> None:
+    def show_container_not_detected(self, title: str = "Container Not Detected", message: str = "") -> None:
         self.clear()
         self._set_background("dashboard/image_1.png")
-        Label(self.root, text="Container Not Detected", font=("Quicksand", 22, "bold")).place(x=0, y=220, width=480, height=60)
+        Label(self.root, text=title, font=("Quicksand", 22, "bold")).place(x=0, y=220, width=480, height=60)
+        if message:
+            Label(self.root, text=message, font=("Quicksand", 14, "bold"), wraplength=420, justify="center").place(x=30, y=290, width=420, height=80)
         Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
 
     def _guard_container_detected(self, action) -> None:
@@ -509,11 +509,14 @@ class SimulatorGUI:
             return
 
         if detected is None:
-            self._debug("IR check unavailable; continuing without container guard")
-
-        if detected is True or detected is None:
-            action()
+            self._debug("IR check unavailable; showing sensor unavailable page")
+            self.show_container_not_detected(
+                title="IR Sensor Unavailable",
+                message="The dashboard could not read the IR sensor. Check the sensor connection or serial link, then go back.",
+            )
             return
+
+        action()
 
     def _serial_send_no_wait(self, payload: str) -> None:
         if not self.serial:
