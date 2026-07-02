@@ -454,12 +454,14 @@ class SimulatorGUI:
         self._debug("RX timeout waiting for levels data")
         return None
 
-    def _serial_send_wait_ir(self, timeout: float = 1.2) -> Optional[bool]:
-        if not self.serial:
-            return None
+def _serial_send_wait_ir(self, timeout: float = 3.0, retries: int = 2) -> Optional[bool]:
+    if not self.serial:
+        return None
+
+    for attempt in range(retries):
         self._serial_read_failed = False
         payload = _legacy_to_json_payload('{"cmd":"ir"}\n')
-        self._debug(f"TX ({self.serial.port} @ {self.serial.baud}): {payload.strip()}")
+        self._debug(f"TX ({self.serial.port} @ {self.serial.baud}): {payload.strip()} (attempt {attempt + 1})")
         try:
             self.serial.send(payload)
         except Exception as exc:
@@ -491,32 +493,27 @@ class SimulatorGUI:
             if raw in (0, 1):
                 return int(raw) == 0
 
-        self._debug("RX timeout waiting for IR data")
-        return None
+        self._debug(f"RX timeout waiting for IR data (attempt {attempt + 1})")
 
-    def show_container_not_detected(self, title: str = "Container Not Detected", message: str = "") -> None:
-        self.clear()
-        self._set_background("dashboard/image_1.png")
-        Label(self.root, text=title, font=("Quicksand", 22, "bold")).place(x=0, y=220, width=480, height=60)
-        if message:
-            Label(self.root, text=message, font=("Quicksand", 14, "bold"), wraplength=420, justify="center").place(x=30, y=290, width=420, height=80)
-        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
+    return None
 
-    def _guard_container_detected(self, action) -> None:
-        detected = self._serial_send_wait_ir()
-        if detected is False:
-            self.show_container_not_detected()
-            return
 
-        if detected is None:
-            self._debug("IR check unavailable; showing sensor unavailable page")
-            self.show_container_not_detected(
-                title="IR Sensor Unavailable",
-                message="The dashboard could not read the IR sensor. Check the sensor connection or serial link, then go back.",
-            )
-            return
+def _guard_container_detected(self, action) -> None:
+    detected = self._serial_send_wait_ir()
 
-        action()
+    if detected is False:
+        self.show_container_not_detected()
+        return
+
+    if detected is None:
+        self._debug("IR check unavailable after retries; showing sensor unavailable page")
+        self.show_container_not_detected(
+            title="IR Sensor Unavailable",
+            message="The dashboard could not read the IR sensor. Check the sensor connection or serial link, then go back.",
+        )
+        return
+
+    action()
 
     def _serial_send_no_wait(self, payload: str) -> None:
         if not self.serial:
