@@ -4,7 +4,9 @@
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-const int stepsPerRevolution = 100;
+// NEMA17 42BYGH34 is a 1.8-degree-per-step bipolar motor:
+// 360 / 1.8 = 200 full steps per revolution.
+const int stepsPerRevolution = 200;
 const int num_step = 7;
 
 const int buttonPin = 6;
@@ -196,6 +198,12 @@ void reposition() {
 
 void nextContainer() {
   stopAllOutputs();
+  // WARNING: this "19" was tuned against the old, incorrect
+  // stepsPerRevolution = 100. Now that stepsPerRevolution = 200 (correct
+  // for the NEMA17 42BYGH34), this loop moves roughly TWICE as far as
+  // before per call and will very likely overshoot the next container.
+  // Re-measure and correct this value on your bench before trusting
+  // moveToContainer()/reposition() for real dispensing.
   for (int i = 0; i < 19; i++) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
@@ -229,6 +237,12 @@ void dispenseDry(int targetGrams, int containerId, int stepsPerGram) {
   }
 
   stopAllOutputs();
+  // WARNING: "revolutions" here counts FULL stepsPerRevolution turns, not
+  // raw motor steps. Now that stepsPerRevolution = 200 (was 100), the same
+  // steps_per_gram value dispenses roughly TWICE as much per gram
+  // requested as before. Re-weigh actual output per container and adjust
+  // each container's steps_per_gram (Settings > Dry Containers) before
+  // trusting real dosing amounts.
   long revolutions = (long)targetGrams * (long)stepsPerGram;
   for (long i = 0; i < revolutions; i++) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
@@ -331,10 +345,18 @@ void setup() {
     digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
   }
 
+  // Starting speeds are intentionally conservative for a NEMA17 42BYGH34
+  // driven through an L298N (no microstepping, no acceleration ramping,
+  // and L298N's current headroom for this motor is borderline). Use
+  // stepper_calibration.ino to find the fastest speed each motor runs
+  // smoothly at without buzzing/stalling on your actual hardware, then
+  // raise these values to match -- don't just copy a number from the
+  // datasheet, since real-world torque/current losses through the L298N
+  // mean the safe ceiling is usually well below the motor's rated max.
   for (int i = 0; i < num_step; i++) {
-    stepper[i].setSpeed(600);
+    stepper[i].setSpeed(60);
   }
-  stepper[6].setSpeed(650);
+  stepper[6].setSpeed(60);
   for (int i = 0; i < num_step; i++) {
     for (int j = 0; j < 4; j++) {
       pinMode(stepperPins[i][j], OUTPUT);
