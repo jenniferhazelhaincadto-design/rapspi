@@ -22,11 +22,11 @@ const int pumpPins[PUMP_COUNT] = {2, 3, 4, 5};
 static const uint8_t PUMP_ACTIVE_LEVEL = PUMP_ACTIVE_LOW ? LOW : HIGH;
 static const uint8_t PUMP_INACTIVE_LEVEL = PUMP_ACTIVE_LOW ? HIGH : LOW;
 
-const int HX711_dout_1 = 47;
-const int HX711_sck_1 = 46;
-const int HX711_dout_2 = 50;
-const int HX711_sck_2 = 48;
-const int HX711_dout_3 = 53;
+const int HX711_dout_1 = 18;
+const int HX711_sck_1 = 19;
+const int HX711_dout_2 = 20;
+const int HX711_sck_2 = 21;
+const int HX711_dout_3 = ;
 const int HX711_sck_3 = 52;
 const int HX711_dout_4 = 45;
 const int HX711_sck_4 = 44;
@@ -43,23 +43,23 @@ const int calVal_eepromAdress_5 = 0;
 const int calVal_eepromAdress_6 = 0;
 
 Stepper stepper[num_step] = {
-Stepper(stepsPerRevolution, 15, 33, 23, 12),
-Stepper(stepsPerRevolution, 25, 14, 32, 22),
-Stepper(stepsPerRevolution, 34, 24, 17, 35),
-Stepper(stepsPerRevolution, 19, 37, 27, 16),
-Stepper(stepsPerRevolution, 29, 18, 36, 26),
-Stepper(stepsPerRevolution, 38, 28, 21, 39),
-Stepper(stepsPerRevolution, 30, 20, 13, 31)
+Stepper(stepsPerRevolution, 22, 23, 24, 25),
+Stepper(stepsPerRevolution, 26, 27, 28, 29),
+Stepper(stepsPerRevolution, 30, 31, 32, 33),
+Stepper(stepsPerRevolution, 34, 35, 36, 37),
+Stepper(stepsPerRevolution, 38, 39, 40, 41),
+Stepper(stepsPerRevolution, 42, 43, 44, 45),
+Stepper(stepsPerRevolution, A8, A9, A10, A11)
 };
 
 const int stepperPins[num_step][4] = {
-{15, 33, 23, 12},
-{25, 14, 32, 22},
-{34, 24, 17, 35},
-{19, 37, 27, 16},
-{29, 18, 36, 26},
-{38, 28, 21, 39},
-{30, 20, 13, 31}
+{22, 23, 24, 25},
+{26, 27, 28, 29},
+{30, 31, 32, 33},
+{34, 35, 36, 37},
+{38, 39, 40, 41},
+{42, 43, 44, 45},
+{A8, A9, A10, A11}
 };
 
 HX711_ADC LoadCell_1(HX711_dout_1, HX711_sck_1);
@@ -343,9 +343,9 @@ digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
 }
 
 for (int i = 0; i < num_step; i++) {
-stepper[i].setSpeed(600);
+stepper[i].setSpeed(60);
 }
-stepper[6].setSpeed(650);
+stepper[6].setSpeed(60);
 for (int i = 0; i < num_step; i++) {
 for (int j = 0; j < 4; j++) {
 pinMode(stepperPins[i][j], OUTPUT);
