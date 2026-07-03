@@ -106,6 +106,8 @@ void stopAllOutputs() {
 
 bool emergencyCheck() {
   if (emergencyLatched) {
+    Serial.println("STATUS:EMERGENCY");
+    Serial.flush();
     return true;
   }
   if (digitalRead(emergencyPin) == LOW) {
@@ -113,6 +115,7 @@ bool emergencyCheck() {
     stopRequested = true;
     stopAllOutputs();
     Serial.println("STATUS:EMERGENCY");
+    Serial.flush();
     return true;
   }
   return false;
@@ -214,12 +217,19 @@ void nextContainer() {
   if (currentContainer > 6) {
     currentContainer = 1;
   }
+  Serial.print("nextContainer -> currentContainer=");
+  Serial.println(currentContainer);
 }
 
 void moveToContainer(int target) {
   if (target < 1 || target > 6) {
     return;
   }
+  Serial.print("moveToContainer -> target=");
+  Serial.print(target);
+  Serial.print(" currentContainer=");
+  Serial.println(currentContainer);
+
   while (currentContainer != target) {
     nextContainer();
     if (stopRequested || emergencyLatched) {
@@ -244,10 +254,17 @@ void dispenseDry(int targetGrams, int containerId, int stepsPerGram) {
   // each container's steps_per_gram (Settings > Dry Containers) before
   // trusting real dosing amounts.
   long revolutions = (long)targetGrams * (long)stepsPerGram;
+  Serial.print("dispenseDry -> containerId=");
+  Serial.print(containerId);
+  Serial.print(" stepsPerGram=");
+  Serial.print(stepsPerGram);
+  Serial.print(" revolutions=");
+  Serial.println(revolutions);
   for (long i = 0; i < revolutions; i++) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
     }
+    // drive the stepper corresponding to the container id (1-based -> 0-based)
     stepper[containerId - 1].step(-stepsPerRevolution);
     delay(5);
   }
@@ -292,8 +309,10 @@ void handleDispense(JsonDocument &doc) {
 
   if (stopRequested || emergencyLatched) {
     Serial.println("STATUS:STOPPED");
+    Serial.flush();
   } else {
     Serial.println("STATUS:OK");
+    Serial.flush();
   }
 }
 
@@ -310,8 +329,10 @@ void handleClean() {
   }
   if (stopRequested || emergencyLatched) {
     Serial.println("STATUS:STOPPED");
+    Serial.flush();
   } else {
     Serial.println("STATUS:OK");
+    Serial.flush();
   }
 }
 
@@ -425,6 +446,7 @@ void loop() {
   DeserializationError err = deserializeJson(doc, line);
   if (err) {
     Serial.println("STATUS:ERROR");
+    Serial.flush();
     return;
   }
 
@@ -439,7 +461,9 @@ void loop() {
     stopRequested = true;
     stopAllOutputs();
     Serial.println("STATUS:STOPPED");
+    Serial.flush();
   } else {
     Serial.println("STATUS:ERROR");
+    Serial.flush();
   }
 }
