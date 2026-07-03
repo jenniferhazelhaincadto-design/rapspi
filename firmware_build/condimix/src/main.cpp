@@ -7,7 +7,6 @@
 const int stepsPerRevolution = 100;
 const int num_step = 7;
 
-const int IRSensor = A9;
 const int buttonPin = 6;
 const int emergencyPin = 7;
 
@@ -185,11 +184,12 @@ void tareLoadCell(int index) {
 
 void reposition() {
   stopAllOutputs();
-  while (digitalRead(IRSensor) == HIGH) {
+  // Move stepper[6] to home position (fixed steps for homing)
+  for (int i = 0; i < 6; i++) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
     }
-    stepper[6].step(stepsPerRevolution);
+    stepper[6].step(stepsPerRevolution * 2);
   }
   currentContainer = 1;
 }
@@ -321,19 +321,8 @@ void handleLevels() {
   Serial.println();
 }
 
-void handleIr() {
-  StaticJsonDocument<128> doc;
-  doc["type"] = "ir";
-  int raw = digitalRead(IRSensor);
-  doc["raw"] = raw;
-  doc["detected"] = (raw == LOW);
-  serializeJson(doc, Serial);
-  Serial.println();
-}
-
 void setup() {
   Serial.begin(9600);
-  pinMode(IRSensor, INPUT);
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(emergencyPin, INPUT_PULLUP);
 
@@ -424,8 +413,6 @@ void loop() {
     handleClean();
   } else if (strcmp(cmd, "levels") == 0) {
     handleLevels();
-  } else if (strcmp(cmd, "ir") == 0) {
-    handleIr();
   } else if (strcmp(cmd, "stop") == 0) {
     stopRequested = true;
     stopAllOutputs();
