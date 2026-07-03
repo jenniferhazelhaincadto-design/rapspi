@@ -192,7 +192,7 @@ class SimulatorGUI:
         self._kiosk_mode = True
         self.root.bind("<Escape>", self._exit_kiosk)
         self.root.bind("<F11>", self._toggle_kiosk)
-        # Apply after window creation so Tk can enter native fullscreen cleanly.
+        # Apply after window creation so VNC/GNOME honors borderless fullscreen reliably.
         self.root.after(50, self._apply_kiosk_mode)
 
         # The UI was designed for 800px height. On GNOME with a top bar, available
@@ -242,8 +242,8 @@ class SimulatorGUI:
         self.voice_input_rate = VOICE_SAMPLE_RATE
         self.voice_input_device_name = ""
         self.voice_buffer = []
-        self.voice_pending_action = None
-        self._voice_worker_thread = None
+        self.voice_pending_recipe = None
+        self.voice_pending_count = 1
         self.voice_status_label = None
         self.voice_transcript_label = None
         self.voice_anim_label = None
@@ -304,9 +304,12 @@ class SimulatorGUI:
 
     def _apply_kiosk_mode(self, _event=None) -> None:
         self._kiosk_mode = True
-        self.root.overrideredirect(False)
-        self.root.attributes("-fullscreen", True)
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        self.root.overrideredirect(True)
+        self.root.geometry(f"{sw}x{sh}+0+0")
         self.root.attributes("-topmost", True)
+        self.root.attributes("-fullscreen", True)
         self.root.lift()
         self.root.focus_force()
 
@@ -641,10 +644,8 @@ class SimulatorGUI:
         wet_containers = {c.cid: c.ms_per_ml for c in db.get_wet_containers(DB_PATH)}
         wet_list = [{"id": w[0], "ml": w[1] * self.batch_count, "ms_per_ml": wet_containers.get(w[0], 100)} for w in wet]
 
-        payload = build_dispense_payload(dry_list, wet_list)
-        wet_seconds = sum((float(item.get("ml") or 0.0) * float(item.get("ms_per_ml") or 0.0)) for item in wet_list) / 1000.0
-        timeout_s = max(30.0, wet_seconds + (180.0 if dry_list else 15.0))
-        status = self._serial_send_wait_status(payload, timeout=timeout_s)
+        payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
+        status = self._serial_send_wait_status(payload, timeout=20.0)
         if status == "STATUS:OK":
             used_dry = [(item["id"], item["g"]) for item in dry_list]
             db.apply_dry_dispense(DB_PATH, used_dry)
@@ -763,106 +764,8 @@ class SimulatorGUI:
 
         Button(self.root, text="Device Setup", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
              command=self.show_device_setup).place(x=40, y=520, width=400, height=70)
-        Button(self.root, text="Ingredient\nLevel", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
-             command=self.show_ingredient_levels).place(x=40, y=600, width=400, height=70)
         Button(self.root, text="Back", font=("Quicksand", 18, "bold"), bg=self.btn_bg, fg=self.btn_fg,
                command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
-
-    def show_ingredient_levels(self) -> None:
-        self.clear()
-        self._set_background("dashboard/image_1.png")
-        Label(self.root, text="Ingredient Levels", font=("Quicksand", 22, "bold")).place(x=0, y=20, width=480)
-
-        dry_containers = db.get_dry_containers(DB_PATH)
-        wet_containers = db.get_wet_containers(DB_PATH)
-
-        dry_entries = []
-        wet_entries = []
-
-        Label(self.root, text="Dry (g)", font=("Quicksand", 16, "bold"), anchor="w").place(x=20, y=70, width=440, height=24)
-        Label(self.root, text="Name", font=("Quicksand", 12, "bold"), anchor="w").place(x=70, y=92, width=190, height=24)
-        Label(self.root, text="Left", font=("Quicksand", 12, "bold"), anchor="center").place(x=270, y=92, width=176, height=24)
-
-        row_h = 46
-        row_step = 50
-        y = 122
-        for cont in dry_containers:
-            Label(self.root, text=f"{cont.cid}", font=("Quicksand", 16, "bold")).place(x=20, y=y, width=40, height=row_h)
-            Label(self.root, text=cont.name, font=("Quicksand", 14, "bold"), anchor="w").place(x=70, y=y, width=190, height=row_h)
-
-            rem_var = StringVar(value=str(cont.remaining_g))
-            Button(self.root, text="-", font=("Quicksand", 17, "bold"),
-                   command=lambda v=rem_var: self._step_int_var(v, -10, 0, 9999)).place(x=270, y=y, width=48, height=row_h)
-            Label(self.root, textvariable=rem_var, font=("Quicksand", 15, "bold"), anchor="center").place(x=322, y=y, width=72, height=row_h)
-            Button(self.root, text="+", font=("Quicksand", 17, "bold"),
-                   command=lambda v=rem_var: self._step_int_var(v, 10, 0, 9999)).place(x=398, y=y, width=48, height=row_h)
-
-            dry_entries.append((cont, rem_var))
-            y += row_step
-
-        Label(self.root, text="Wet (ml)", font=("Quicksand", 16, "bold"), anchor="w").place(x=20, y=y + 10, width=440, height=24)
-        y += 32
-        Label(self.root, text="Name", font=("Quicksand", 12, "bold"), anchor="w").place(x=70, y=y, width=190, height=24)
-        Label(self.root, text="Left", font=("Quicksand", 12, "bold"), anchor="center").place(x=270, y=y, width=176, height=24)
-        y += 30
-
-        for cont in wet_containers:
-            Label(self.root, text=f"{cont.cid}", font=("Quicksand", 16, "bold")).place(x=20, y=y, width=40, height=row_h)
-            Label(self.root, text=cont.name, font=("Quicksand", 14, "bold"), anchor="w").place(x=70, y=y, width=190, height=row_h)
-
-            rem_var = StringVar(value=str(cont.remaining_ml))
-            Button(self.root, text="-", font=("Quicksand", 17, "bold"),
-                   command=lambda v=rem_var: self._step_int_var(v, -10, 0, 9999)).place(x=270, y=y, width=48, height=row_h)
-            Label(self.root, textvariable=rem_var, font=("Quicksand", 15, "bold"), anchor="center").place(x=322, y=y, width=72, height=row_h)
-            Button(self.root, text="+", font=("Quicksand", 17, "bold"),
-                   command=lambda v=rem_var: self._step_int_var(v, 10, 0, 9999)).place(x=398, y=y, width=48, height=row_h)
-
-            wet_entries.append((cont, rem_var))
-            y += row_step
-
-        def _save_levels(reset_full: bool = False) -> None:
-            dry_items = []
-            for cont, rem_var in dry_entries:
-                cap = int(cont.capacity_g or 1000)
-                if reset_full:
-                    rem = cap
-                    rem_var.set(str(rem))
-                else:
-                    try:
-                        rem = int(rem_var.get())
-                    except ValueError:
-                        rem = int(cont.remaining_g or cap)
-                    rem = max(0, min(cap, rem))
-                    rem_var.set(str(rem))
-                dry_items.append((cont.name, int(cont.steps_per_gram or 2), cap, rem))
-            db.set_dry_containers(DB_PATH, dry_items)
-
-            wet_items = []
-            for cont, rem_var in wet_entries:
-                cap = int(cont.capacity_ml or 1000)
-                if reset_full:
-                    rem = cap
-                    rem_var.set(str(rem))
-                else:
-                    try:
-                        rem = int(rem_var.get())
-                    except ValueError:
-                        rem = int(cont.remaining_ml or cap)
-                    rem = max(0, min(cap, rem))
-                    rem_var.set(str(rem))
-                wet_items.append((cont.name, int(cont.ms_per_ml or 1000), cap, rem))
-            db.set_wet_containers(DB_PATH, wet_items)
-
-        def save():
-            _save_levels(reset_full=False)
-            self.show_settings_panel()
-
-        def reset_levels():
-            _save_levels(reset_full=True)
-
-        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_settings_panel).place(x=20, y=700, width=140, height=70)
-        Button(self.root, text="Reset", font=("Quicksand", 18, "bold"), command=reset_levels).place(x=170, y=700, width=140, height=70)
-        Button(self.root, text="Save", font=("Quicksand", 18, "bold"), command=save).place(x=320, y=700, width=140, height=70)
 
     def show_dry_settings(self) -> None:
         self.clear()
@@ -1383,12 +1286,7 @@ class SimulatorGUI:
             name = f"Single: {selection['name']}"
             status_var.set("Sending command...")
             self.root.update_idletasks()
-            if selection["type"] == "wet":
-                wet_seconds = (float(amount) * float(selection.get("ms_per_ml") or 0.0)) / 1000.0
-                timeout_s = max(30.0, wet_seconds + 15.0)
-            else:
-                timeout_s = 180.0
-            status = self._serial_send_wait_status(payload, timeout=timeout_s)
+            status = self._serial_send_wait_status(payload, timeout=8.0)
             if status == "STATUS:OK" and selection["type"] == "dry":
                 db.apply_dry_dispense(DB_PATH, [(selection["id"], amount)])
             if status == "STATUS:OK" and selection["type"] == "wet":
@@ -1428,7 +1326,7 @@ class SimulatorGUI:
         self.clear()
         self._set_background("dispensing/image_1.png")
         Label(self.root, text="Ingredient Levels", font=("Quicksand", 22, "bold")).place(x=0, y=20, width=480)
-        status_var = StringVar(value="Dry container levels")
+        status_var = StringVar(value="Dry container levels (DB estimated)")
         Label(self.root, textvariable=status_var, font=("Quicksand", 12)).place(x=40, y=80, width=400, height=40)
 
         y = 140
@@ -1440,7 +1338,7 @@ class SimulatorGUI:
             ).place(x=40, y=y, width=400, height=24)
             y += 28
         y += 10
-        Label(self.root, text="Wet (ml)", font=("Quicksand", 12, "bold")).place(x=40, y=y, width=400, height=24)
+        Label(self.root, text="Wet (estimated ml)", font=("Quicksand", 12, "bold")).place(x=40, y=y, width=400, height=24)
         y += 28
         for cont in db.get_wet_containers(DB_PATH):
             Label(
@@ -1543,8 +1441,8 @@ class SimulatorGUI:
         Button(self.root, text="Refresh", font=("Quicksand", 18, "bold"), command=refresh_ports).place(x=40, y=320, width=180, height=70)
         Button(self.root, text="Connect", font=("Quicksand", 18, "bold"), command=connect).place(x=240, y=320, width=180, height=70)
 
-        back_target = self.show_dashboard if initial else self.show_settings_panel
-        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=back_target).place(x=140, y=700, width=200, height=70)
+        if not initial:
+            Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_settings_panel).place(x=140, y=700, width=200, height=70)
 
     def show_edit_recipe(self) -> None:
         self.clear()
@@ -1662,10 +1560,10 @@ class SimulatorGUI:
         self._set_background("dashboard/image_1.png")
         self.voice_running = True
         self.voice_state = "listen_command"
-        self._voice_stop_stream()
         self._voice_clear_queue()
         self.voice_buffer = []
-        self.voice_pending_action = None
+        self.voice_pending_recipe = None
+        self.voice_pending_count = 1
 
         Label(self.root, text="Voice Control", font=("Quicksand", 24, "bold")).place(x=0, y=30, width=480)
         self.voice_anim_label = Label(self.root, text="Listening...", font=("Quicksand", 18, "bold"))
@@ -1690,24 +1588,15 @@ class SimulatorGUI:
 
     def _voice_set_status(self, text: str) -> None:
         if self.voice_status_label:
-            try:
-                self.voice_status_label.config(text=text)
-            except tk.TclError:
-                pass
+            self.voice_status_label.config(text=text)
 
     def _voice_set_transcript(self, text: str) -> None:
         if self.voice_transcript_label:
-            try:
-                self.voice_transcript_label.config(text=f"Heard: {text}")
-            except tk.TclError:
-                pass
+            self.voice_transcript_label.config(text=f"Heard: {text}")
 
     def _voice_set_debug(self, text: str) -> None:
         if self.voice_debug_label:
-            try:
-                self.voice_debug_label.config(text=text)
-            except tk.TclError:
-                pass
+            self.voice_debug_label.config(text=text)
 
     def _voice_ensure_model(self) -> None:
         if self.voice_model is None:
@@ -1799,10 +1688,8 @@ class SimulatorGUI:
                 self._voice_stop_stream()
                 return
 
-            self.root.after(0, self._voice_set_status, "Say: '<number> <recipe or ingredient name>'")
-            if self._voice_worker_thread is None or not self._voice_worker_thread.is_alive():
-                self._voice_worker_thread = threading.Thread(target=self._voice_worker, daemon=True)
-                self._voice_worker_thread.start()
+            self.root.after(0, self._voice_set_status, "Say: '<number> <recipe name>'")
+            threading.Thread(target=self._voice_worker, daemon=True).start()
         except Exception as exc:
             self.voice_running = False
             self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
@@ -1827,8 +1714,6 @@ class SimulatorGUI:
     def _voice_worker(self) -> None:
         import numpy as np
         recipes = [r.name for r in db.list_recipes(DB_PATH)]
-        dry_containers = db.get_dry_containers(DB_PATH)
-        wet_containers = db.get_wet_containers(DB_PATH)
 
         sample_rate = int(self.voice_input_rate or VOICE_SAMPLE_RATE)
         max_chunk = int(sample_rate * VOICE_MAX_CHUNK_SEC)
@@ -1882,7 +1767,7 @@ class SimulatorGUI:
                     vad_filter=True,
                     initial_prompt=(
                         "Transcribe only spoken commands for a dispenser. "
-                        "Expected words are numbers, recipe names, ingredient names, yes, and no."
+                        "Expected words are numbers one to ten, recipe names, yes, and no."
                     ),
                 )
                 text = " ".join(seg.text for seg in segments).strip()
@@ -1896,126 +1781,54 @@ class SimulatorGUI:
             self.root.after(0, self._voice_set_transcript, text)
 
             if self.voice_state == "listen_command":
-                action = self._voice_parse_command(text, recipes, dry_containers, wet_containers)
-                if action:
-                    self.voice_pending_action = action
+                recipe, count = self._voice_parse_recipe(text, recipes)
+                if recipe:
+                    self.voice_pending_recipe = recipe
+                    self.voice_pending_count = count
                     self.voice_state = "confirm"
-                    if action.get("kind") == "recipe":
-                        summary = f"{action.get('name')} x{action.get('count')}"
-                    else:
-                        summary = f"{action.get('name')} {action.get('amount')} {action.get('unit')}"
-                    self.root.after(0, self._voice_set_status, f"Detected {summary}. Say yes or no.")
+                    self.root.after(0, self._voice_set_status, f"Detected {recipe} x{count}. Say yes or no.")
                 else:
-                    self.root.after(0, self._voice_set_status, "Say: '<number> <recipe or ingredient name>'")
+                    self.root.after(0, self._voice_set_status, "Say: '<number> <recipe name>'")
             elif self.voice_state == "confirm":
                 decision = self._voice_parse_yes_no(text)
                 if decision == "yes":
                     self.root.after(0, self._voice_execute_recipe)
                 elif decision == "no":
                     self.voice_state = "listen_command"
-                    self.root.after(0, self._voice_set_status, "Okay. Say: '<number> <recipe or ingredient name>'")
+                    self.root.after(0, self._voice_set_status, "Okay. Say: '<number> <recipe name>'")
 
-    def _voice_parse_command(self, text: str, recipes, dry_containers, wet_containers):
-        """Parse '<number> <name>' where name can be a recipe or a dry/wet container."""
+    def _voice_parse_recipe(self, text: str, recipes):
         text = text.strip().lower()
         if not text:
-            return None
+            return None, None
 
-        norm_text = re.sub(r"[^a-z0-9\s]", " ", text)
-        norm_text = re.sub(r"\s+", " ", norm_text).strip()
-        if not norm_text:
-            return None
+        text = re.sub(r"[^a-z0-9\s]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
 
         number_words = {
             "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
             "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
         }
 
-        def norm_name(name: str) -> str:
-            name = (name or "").strip().lower()
-            name = re.sub(r"[^a-z0-9\s]", " ", name)
-            name = re.sub(r"\s+", " ", name).strip()
-            return name
+        count = None
+        digit_match = re.search(r"\b([1-9]|10)\b", text)
+        if digit_match:
+            count = int(digit_match.group(1))
+        else:
+            for word, value in number_words.items():
+                if re.search(rf"\b{word}\b", text):
+                    count = value
+                    break
 
-        def extract_qty(prefix: str):
-            prefix = (prefix or "").strip()
-            if not prefix:
-                return None
-            digits = re.findall(r"\b\d+\b", prefix)
-            if digits:
-                try:
-                    return int(digits[-1])
-                except ValueError:
-                    return None
-            tokens = prefix.split()
-            for token in reversed(tokens):
-                if token in number_words:
-                    return number_words[token]
-            return None
+        if count is None:
+            return None, None
 
-        candidates = []
-        # Each entry: (score, priority, -idx, action_dict)
-        priority = {"recipe": 3, "wet": 2, "dry": 1}
-
-        for name in recipes or []:
-            n = norm_name(name)
-            if not n:
-                continue
-            idx = norm_text.find(n)
-            if idx < 0:
-                continue
-            qty = extract_qty(norm_text[:idx])
-            if qty is None:
-                continue
-            count = max(1, min(10, int(qty)))
-            action = {"kind": "recipe", "name": name, "count": count}
-            candidates.append((len(n), priority["recipe"], -idx, action))
-
-        for cont in dry_containers or []:
-            n = norm_name(getattr(cont, "name", ""))
-            if not n:
-                continue
-            idx = norm_text.find(n)
-            if idx < 0:
-                continue
-            qty = extract_qty(norm_text[:idx])
-            if qty is None:
-                continue
-            amount = max(1, min(9999, int(qty)))
-            action = {
-                "kind": "dry",
-                "id": int(getattr(cont, "cid", 0)),
-                "name": getattr(cont, "name", ""),
-                "amount": amount,
-                "unit": "g",
-            }
-            candidates.append((len(n), priority["dry"], -idx, action))
-
-        for cont in wet_containers or []:
-            n = norm_name(getattr(cont, "name", ""))
-            if not n:
-                continue
-            idx = norm_text.find(n)
-            if idx < 0:
-                continue
-            qty = extract_qty(norm_text[:idx])
-            if qty is None:
-                continue
-            amount = max(1, min(9999, int(qty)))
-            action = {
-                "kind": "wet",
-                "id": int(getattr(cont, "cid", 0)),
-                "name": getattr(cont, "name", ""),
-                "amount": amount,
-                "unit": "ml",
-            }
-            candidates.append((len(n), priority["wet"], -idx, action))
-
-        if not candidates:
-            return None
-
-        candidates.sort(reverse=True)
-        return candidates[0][3]
+        recipe = None
+        for name in recipes:
+            if name and name.lower() in text:
+                recipe = name
+                break
+        return recipe, count
 
     def _voice_parse_yes_no(self, text: str):
         text = text.strip().lower()
@@ -2026,95 +1839,19 @@ class SimulatorGUI:
         return None
 
     def _voice_execute_recipe(self) -> None:
-        action = self.voice_pending_action
         self.voice_state = "idle"
         self._voice_stop_stream()
-
-        if not action or not isinstance(action, dict) or not action.get("kind"):
+        recipes = db.list_recipes(DB_PATH)
+        match = [r for r in recipes if r.name == self.voice_pending_recipe]
+        if not match:
+            if self.voice_status_label:
+                self.voice_status_label.config(text="Recipe not found.")
             self.voice_state = "listen_command"
-            try:
-                self._voice_start_stream()
-            except Exception as exc:
-                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
+            self._voice_start_stream()
             return
-
-        if self.serial is None:
-            self.voice_state = "listen_command"
-            self.root.after(0, self._voice_set_status, "No serial connection. Open Device Setup.")
-            try:
-                self._voice_start_stream()
-            except Exception as exc:
-                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
-            return
-
-        kind = action.get("kind")
-        if kind == "recipe":
-            recipes = db.list_recipes(DB_PATH)
-            match = [r for r in recipes if r.name == action.get("name")]
-            if not match:
-                self.voice_state = "listen_command"
-                self.root.after(0, self._voice_set_status, "Recipe not found.")
-                try:
-                    self._voice_start_stream()
-                except Exception as exc:
-                    self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
-                return
-            self.active_recipe_id = match[0].rid
-            self.batch_count = int(action.get("count") or 1)
-            self.start_dispense()
-            return
-
-        cid = int(action.get("id") or 0)
-        amount = int(action.get("amount") or 0)
-        if cid <= 0 or amount <= 0:
-            self.voice_state = "listen_command"
-            self.root.after(0, self._voice_set_status, "Invalid ingredient command.")
-            try:
-                self._voice_start_stream()
-            except Exception as exc:
-                self.root.after(0, self._voice_set_status, f"Mic error: {exc}")
-            return
-
-        self.root.after(0, self._voice_set_status, "Sending command...")
-        if kind == "dry":
-            steps = 2
-            for c in db.get_dry_containers(DB_PATH):
-                if c.cid == cid:
-                    steps = int(c.steps_per_gram or 2)
-                    break
-            payload = _build_single_dispense_payload_fallback(
-                "D",
-                cid,
-                amount,
-                steps_per_gram=steps,
-            )
-            status = self._serial_send_wait_status(payload, timeout=180.0)
-            if status == "STATUS:OK":
-                db.apply_dry_dispense(DB_PATH, [(cid, amount)])
-        else:
-            ms_per_ml = 1000
-            for c in db.get_wet_containers(DB_PATH):
-                if c.cid == cid:
-                    ms_per_ml = int(c.ms_per_ml or 1000)
-                    break
-            payload = _build_single_dispense_payload_fallback(
-                "W",
-                cid,
-                amount,
-                ms_per_ml=ms_per_ml,
-            )
-            wet_seconds = (float(amount) * float(ms_per_ml)) / 1000.0
-            timeout_s = max(30.0, wet_seconds + 15.0)
-            status = self._serial_send_wait_status(payload, timeout=timeout_s)
-            if status == "STATUS:OK":
-                db.apply_wet_dispense(DB_PATH, [(cid, amount)])
-
-        name = f"Single: {action.get('name') or ''}".strip()
-        db.log_dispense(DB_PATH, time.strftime("%Y-%m-%d %H:%M:%S"), name, 1, self._format_status(status))
-        if self.voice_running:
-            self.show_voice()
-        else:
-            self.show_dashboard()
+        self.active_recipe_id = match[0].rid
+        self.batch_count = self.voice_pending_count
+        self.start_dispense()
 
     def run(self) -> None:
         self.root.mainloop()
@@ -2132,3 +1869,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
