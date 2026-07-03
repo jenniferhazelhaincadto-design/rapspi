@@ -641,7 +641,7 @@ class SimulatorGUI:
         wet_containers = {c.cid: c.ms_per_ml for c in db.get_wet_containers(DB_PATH)}
         wet_list = [{"id": w[0], "ml": w[1] * self.batch_count, "ms_per_ml": wet_containers.get(w[0], 100)} for w in wet]
 
-        payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
+        payload = build_dispense_payload(dry_list, wet_list)
         wet_seconds = sum((float(item.get("ml") or 0.0) * float(item.get("ms_per_ml") or 0.0)) for item in wet_list) / 1000.0
         timeout_s = max(30.0, wet_seconds + (180.0 if dry_list else 15.0))
         status = self._serial_send_wait_status(payload, timeout=timeout_s)
