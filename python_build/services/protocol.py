@@ -1,32 +1,48 @@
+import json
 from typing import List, Dict
 
 
-def build_dispense_payload(recipe: str, batches: int, dry: List[Dict], wet: List[Dict]) -> str:
-    items = []
-    for item in dry:
-        items.append(f"D,{int(item.get('id', 0))},{int(item.get('g', 0))}")
-    for item in wet:
-        ml = item.get("ml", 0)
-        items.append(f"W,{int(item.get('id', 0))},{float(ml)}")
-    if items:
-        return f"MIX,{recipe},{int(batches)},{';'.join(items)}\n"
-    return f"MIX,{recipe},{int(batches)}\n"
+def build_dispense_payload(dry: List[Dict], wet: List[Dict]) -> str:
+    """Build JSON dispense command payload."""
+    payload = {
+        "cmd": "dispense",
+        "dry": dry,
+        "wet": wet
+    }
+    return json.dumps(payload) + "\n"
 
 
 def build_single_dispense_payload(kind: str, cid: int, amount: float) -> str:
-    tag = "D" if str(kind).upper().startswith("D") else "W"
-    if tag == "D":
-        return f"DISPENSE,D,{int(cid)},{int(amount)}\n"
-    return f"DISPENSE,W,{int(cid)},{float(amount)}\n"
+    """Build JSON single dispense command payload."""
+    is_dry = str(kind).upper().startswith("D")
+    if is_dry:
+        payload = {
+            "cmd": "dispense",
+            "dry": [{"id": int(cid), "g": int(amount), "steps_per_gram": 2}],
+            "wet": []
+        }
+    else:
+        payload = {
+            "cmd": "dispense",
+            "dry": [],
+            "wet": [{"id": int(cid), "ml": float(amount), "ms_per_ml": 100}]
+        }
+    return json.dumps(payload) + "\n"
 
 
 def build_stop_payload() -> str:
-    return "STOP\n"
+    """Build JSON stop command payload."""
+    payload = {"cmd": "stop"}
+    return json.dumps(payload) + "\n"
 
 
 def build_clean_payload() -> str:
-    return "CLEAN\n"
+    """Build JSON clean command payload."""
+    payload = {"cmd": "clean"}
+    return json.dumps(payload) + "\n"
 
 
 def build_levels_payload() -> str:
-    return "LEVELS\n"
+    """Build JSON levels command payload."""
+    payload = {"cmd": "levels"}
+    return json.dumps(payload) + "\n"
