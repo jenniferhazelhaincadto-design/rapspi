@@ -4,7 +4,7 @@
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-const int stepsPerRevolution = 100;
+const int stepsPerRevolution = 200;
 const int num_step = 7;
 
 const int buttonPin = 6;
