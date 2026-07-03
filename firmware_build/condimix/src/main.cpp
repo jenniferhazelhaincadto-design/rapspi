@@ -6,7 +6,7 @@
 
 // NEMA17 42BYGH34 is a 1.8-degree-per-step bipolar motor:
 // 360 / 1.8 = 200 full steps per revolution.
-const int stepsPerRevolution = 200;
+const int stepsPerRevolution = 100;
 const int num_step = 7;
 
 const int buttonPin = 6;
