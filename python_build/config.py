@@ -5,7 +5,7 @@ DB_PATH = BASE_DIR / "data" / "app.db"
 
 SERIAL_PORT = "/dev/ttyUSB0"
 SERIAL_BAUD = 9600
-SERIAL_SIMULATE = True
+SERIAL_SIMULATE = False
 
 VOICE_MODEL = "small"
 VOICE_COMPUTE_TYPE = "int8"
