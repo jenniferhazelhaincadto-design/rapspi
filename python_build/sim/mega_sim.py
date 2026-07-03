@@ -1,4 +1,3 @@
-import json
 import os
 import pty
 import select
@@ -39,106 +38,60 @@ def _write_line(fd, text):
     _log(f"TX <- {text}")
 
 
-def _write_json(fd, obj):
-    text = json.dumps(obj)
-    os.write(fd, (text + "\n").encode("utf-8"))
-    _log(f"TX <- {text}")
-
-
-def _poll_for_stop(fd, buffer, stop_flag):
-    """Non-blocking check for an incoming {"cmd":"stop"} line while busy.
-    Mirrors the firmware's pollStop()/checkUserStop() behavior during
-    long-running operations."""
-    rlist, _, _ = select.select([fd], [], [], 0)
-    if fd in rlist:
-        buffer = _read_available(fd, buffer)
-        lines, buffer = _extract_lines(buffer)
-        for line in lines:
-            _log(f"RX -> {line}")
-            try:
-                doc = json.loads(line)
-            except (ValueError, TypeError):
-                continue
-            if doc.get("cmd") == "stop":
-                stop_flag[0] = True
-    return buffer
-
-
-def _sleep_with_stop_check(fd, buffer, duration_s, stop_flag):
-    """Sleep in small slices, polling for a stop command the whole time,
-    same idea as the firmware's delay(5) loops in runPump()/dispenseDry()."""
-    end_time = time.monotonic() + duration_s
-    slice_s = 0.02
-    while time.monotonic() < end_time:
-        if stop_flag[0]:
-            break
-        buffer = _poll_for_stop(fd, buffer, stop_flag)
-        if stop_flag[0]:
-            break
-        time.sleep(slice_s)
-    return buffer
-
-
 def _handle_levels(fd, dry_levels):
-    doc = {
-        "type": "levels",
-        "dry": [{"id": i + 1, "g": int(g)} for i, g in enumerate(dry_levels)],
-    }
-    _write_json(fd, doc)
+    items = [f"D,{i + 1},{int(g)}" for i, g in enumerate(dry_levels)]
+    _write_line(fd, "LEVELS," + ";".join(items))
 
 
-def _handle_clean(fd, buffer, stop_flag):
+def _handle_clean(fd):
     _log("CLEAN: start")
-    for _ in range(4):
-        if stop_flag[0]:
-            break
-        buffer = _sleep_with_stop_check(fd, buffer, 0.3, stop_flag)
-    if stop_flag[0]:
-        _write_line(fd, "STATUS:STOPPED")
-    else:
-        _write_line(fd, "STATUS:OK")
-    return buffer
+    time.sleep(0.5)
+    _write_line(fd, "STATUS:OK")  # Ensure using STATUS:OK only
 
 
-def _handle_dispense(fd, buffer, doc, dry_levels, stop_flag):
-    dry = doc.get("dry") or []
-    wet = doc.get("wet") or []
-
-    for item in dry:
+def _handle_dispense_items(fd, items, dry_levels, stop_flag):
+    for kind, cid, amount in items:
         if stop_flag[0]:
             break
-        cid = int(item.get("id", 0) or 0)
-        grams = int(item.get("g", 0) or 0)
-        if grams <= 0 or not (1 <= cid <= len(dry_levels)):
-            continue
-        _log(f"DRY {cid}: target {grams} g")
-        buffer = _sleep_with_stop_check(fd, buffer, 0.2, stop_flag)
-        if stop_flag[0]:
-            break
-        dry_levels[cid - 1] = max(0, dry_levels[cid - 1] - grams)
-
-    for item in wet:
-        if stop_flag[0]:
-            break
-        cid = int(item.get("id", 0) or 0)
-        ml = float(item.get("ml", 0.0) or 0.0)
-        if ml <= 0 or cid <= 0:
-            continue
-        _log(f"WET {cid}: {ml} ml")
-        buffer = _sleep_with_stop_check(fd, buffer, 0.2, stop_flag)
+        if kind == "D":
+            grams = int(amount)
+            _log(f"DRY {cid}: target {grams} g")
+            time.sleep(0.2)
+            if 1 <= cid <= len(dry_levels):
+                dry_levels[cid - 1] = max(0, dry_levels[cid - 1] - grams)
+        else:
+            ml = float(amount)
+            _log(f"WET {cid}: {ml} ml")
+            time.sleep(0.2)
 
     if stop_flag[0]:
         _write_line(fd, "STATUS:STOPPED")
     else:
         _write_line(fd, "STATUS:OK")
-    return buffer
+
+
+def _parse_items(text):
+    items = []
+    for part in text.split(";"):
+        fields = [f.strip() for f in part.split(",") if f.strip()]
+        if len(fields) < 3:
+            continue
+        kind = fields[0].upper()
+        if kind not in ("D", "W"):
+            continue
+        try:
+            cid = int(fields[1])
+            amount = float(fields[2])
+        except ValueError:
+            continue
+        items.append((kind, cid, amount))
+    return items
 
 
 def main():
     master_fd, slave_fd = pty.openpty()
     slave_name = os.ttyname(slave_fd)
     _log(f"Mega simulator ready at {slave_name}")
-    _log('Send JSON lines, e.g. {"cmd":"dispense","dry":[{"id":1,"g":50}],"wet":[{"id":1,"ml":30}]}')
 
     dry_levels = [500, 500, 500, 500, 500, 500]
     stop_flag = [False]
@@ -152,36 +105,49 @@ def main():
                 lines, buffer = _extract_lines(buffer)
                 for line in lines:
                     _log(f"RX -> {line}")
-
-                    try:
-                        doc = json.loads(line)
-                    except (ValueError, TypeError):
-                        _write_line(master_fd, "STATUS:ERROR")
+                    line = line.strip()
+                    if not line:
                         continue
-
-                    if not isinstance(doc, dict):
-                        _write_line(master_fd, "STATUS:ERROR")
-                        continue
-
-                    cmd = doc.get("cmd", "")
-
-                    if cmd == "stop":
+                    upper = line.upper()
+                    if upper == "STOP":
                         stop_flag[0] = True
                         _write_line(master_fd, "STATUS:STOPPED")
                         continue
-
-                    if cmd == "clean":
+                    if upper == "CLEAN":
                         stop_flag[0] = False
-                        buffer = _handle_clean(master_fd, buffer, stop_flag)
+                        _handle_clean(master_fd)
                         continue
-
-                    if cmd == "levels":
+                    if upper == "LEVELS":
                         _handle_levels(master_fd, dry_levels)
                         continue
 
-                    if cmd == "dispense":
+                    if upper.startswith("DISPENSE,"):
                         stop_flag[0] = False
-                        buffer = _handle_dispense(master_fd, buffer, doc, dry_levels, stop_flag)
+                        parts = [p.strip() for p in line.split(",") if p.strip()]
+                        if len(parts) >= 4:
+                            kind = parts[1].upper()
+                            try:
+                                cid = int(parts[2])
+                                amount = float(parts[3])
+                            except ValueError:
+                                _write_line(master_fd, "STATUS:ERROR")
+                                continue
+                            _handle_dispense_items(master_fd, [(kind, cid, amount)], dry_levels, stop_flag)
+                        else:
+                            _write_line(master_fd, "STATUS:ERROR")
+                        continue
+
+                    if upper.startswith("MIX,"):
+                        stop_flag[0] = False
+                        parts = line.split(",", 3)
+                        if len(parts) < 4:
+                            _write_line(master_fd, "STATUS:ERROR")
+                            continue
+                        recipe = parts[1].strip()
+                        batches = parts[2].strip()
+                        _log(f"MIX: recipe={recipe} batches={batches}")
+                        items = _parse_items(parts[3])
+                        _handle_dispense_items(master_fd, items, dry_levels, stop_flag)
                         continue
 
                     _write_line(master_fd, "STATUS:ERROR")
