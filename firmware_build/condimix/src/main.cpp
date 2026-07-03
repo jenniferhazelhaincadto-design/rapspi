@@ -59,7 +59,7 @@ const int stepperPins[num_step][4] = {
 {34, 35, 36, 37},
 {38, 39, 40, 41},
 {42, 43, 44, 45},
-{A8, A9, A10, A11}
+{46, 47, 48, 49}
 };
 
 HX711_ADC LoadCell_1(HX711_dout_1, HX711_sck_1);
