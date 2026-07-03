@@ -183,7 +183,7 @@ class V2SimApp:
                 {"id": w[0], "ml": w[1] * self._batch_count, "ms_per_ml": wet_containers.get(w[0], 100)}
                 for w in wet_rows
             ]
-            payload = build_dispense_payload(recipe_row[1], self._batch_count, dry_list, wet_list)
+            payload = build_dispense_payload(dry_list, wet_list)
             status = self.serial.send_and_wait_done(payload)
             if status == "STATUS:OK":
                 used = [(item["id"], item["ml"]) for item in wet_list]
