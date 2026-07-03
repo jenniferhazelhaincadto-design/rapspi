@@ -164,7 +164,7 @@ class App:
         wet_containers = {c.cid: c.ms_per_ml for c in db.get_wet_containers(DB_PATH)}
         wet_list = [{"id": w[0], "ml": w[1] * self.batch_count, "ms_per_ml": wet_containers.get(w[0], 100)} for w in wet]
 
-        payload = build_dispense_payload(dry_list, wet_list)
+        payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
         status = self.serial.send_and_wait_done(payload)
         if status == "STATUS:OK":
             used = [(item["id"], item["ml"]) for item in wet_list]
