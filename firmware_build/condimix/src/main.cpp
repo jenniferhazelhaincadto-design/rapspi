@@ -4,7 +4,7 @@
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-const int stepsPerRevolution = 100;
+const int stepsPerRevolution = 200;
 const int num_step = 7;
 
 const int IRSensor = A5;
@@ -12,7 +12,7 @@ const int buttonPin = 6;
 const int emergencyPin = 7;
 
 const int PUMP_COUNT = 4;                      
-const int pumpPins[PUMP_COUNT] = {2, 3, 4, 5};
+const int pumpPins[PUMP_COUNT] = {50, 51, 52, 53};
 
 // Most relay boards used for pumps are active-low:
 //   LOW  = relay ON (pump powered)
@@ -30,10 +30,10 @@ const int HX711_dout_3 = A8;
 const int HX711_sck_3 = A9;
 const int HX711_dout_4 = A10;
 const int HX711_sck_4 = A11;
-const int HX711_dout_5 = 50;
-const int HX711_sck_5 = 51;
-const int HX711_dout_6 = 52;
-const int HX711_sck_6 = 53;
+const int HX711_dout_5 = 2;
+const int HX711_sck_5 = 3;
+const int HX711_dout_6 = 4;
+const int HX711_sck_6 = 5;
 
 const int calVal_eepromAdress_1 = 0;
 const int calVal_eepromAdress_2 = 0;
@@ -43,23 +43,24 @@ const int calVal_eepromAdress_5 = 0;
 const int calVal_eepromAdress_6 = 0;
 
 Stepper stepper[num_step] = {
+Stepper(stepsPerRevolution, 46, 47, 48, 49),
 Stepper(stepsPerRevolution, 22, 23, 24, 25),
 Stepper(stepsPerRevolution, 26, 27, 28, 29),
 Stepper(stepsPerRevolution, 30, 31, 32, 33),
 Stepper(stepsPerRevolution, 34, 35, 36, 37),
 Stepper(stepsPerRevolution, 38, 39, 40, 41),
-Stepper(stepsPerRevolution, 42, 43, 44, 45),
-Stepper(stepsPerRevolution, 46, 47, 48, 49)
+Stepper(stepsPerRevolution, 42, 43, 44, 45)
+
 };
 
 const int stepperPins[num_step][4] = {
-{22, 23, 24, 25},
 {26, 27, 28, 29},
 {30, 31, 32, 33},
 {34, 35, 36, 37},
 {38, 39, 40, 41},
 {42, 43, 44, 45},
-{46, 47, 48, 49}
+{46, 47, 48, 49},
+{22, 23, 24, 25}
 };
 
 HX711_ADC LoadCell_1(HX711_dout_1, HX711_sck_1);
