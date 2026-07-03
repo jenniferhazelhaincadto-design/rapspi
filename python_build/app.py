@@ -6,7 +6,7 @@ from tkinter import Tk, Button, Label, Entry, StringVar, Frame, Scrollbar, Canva
 
 import schedule
 
-from config import DB_PATH,  SERIAL_PORT, SERIAL_BAUD, SERIAL_SIMULATE, VOICE_MODEL, VOICE_COMPUTE_TYPE
+from config import DB_PATH, SERIAL_PORT, SERIAL_BAUD, SERIAL_SIMULATE, VOICE_MODEL, VOICE_COMPUTE_TYPE
 from services import db
 from services.protocol import build_dispense_payload, build_clean_payload, build_stop_payload, build_levels_payload
 from services.serial_link import SerialLink
@@ -160,28 +160,15 @@ class App:
 
     def start_dispense(self) -> None:
         recipe, dry, wet = db.get_recipe_detail(DB_PATH, self.active_recipe_id)
-        dry_containers = {c.cid: c.steps_per_gram for c in db.get_dry_containers(DB_PATH)}
-        dry_list = [
-            {
-                "id": d[0],
-                "g": d[1] * self.batch_count,
-                "steps_per_gram": dry_containers.get(d[0], 2),
-            }
-            for d in dry
-        ]
+        dry_list = [{"id": d[0], "g": d[1] * self.batch_count} for d in dry]
         wet_containers = {c.cid: c.ms_per_ml for c in db.get_wet_containers(DB_PATH)}
         wet_list = [{"id": w[0], "ml": w[1] * self.batch_count, "ms_per_ml": wet_containers.get(w[0], 100)} for w in wet]
 
         payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
-        wet_seconds = sum((float(item.get("ml") or 0.0) * float(item.get("ms_per_ml") or 0.0)) for item in wet_list) / 1000.0
-        dry_seconds = sum(int(item["g"]) * int(item["steps_per_gram"]) for item in dry_list)
-        timeout_s = max(180.0, dry_seconds + wet_seconds + 30.0) if dry_list else max(30.0, wet_seconds + 15.0)
-        status = self.serial.send_and_wait_done(payload, timeout=timeout_s)
+        status = self.serial.send_and_wait_done(payload)
         if status == "STATUS:OK":
-            used_dry = [(item["id"], item["g"]) for item in dry_list]
-            db.apply_dry_dispense(DB_PATH, used_dry)
-            used_wet = [(item["id"], item["ml"]) for item in wet_list]
-            db.apply_wet_dispense(DB_PATH, used_wet)
+            used = [(item["id"], item["ml"]) for item in wet_list]
+            db.apply_wet_dispense(DB_PATH, used)
         db.log_dispense(DB_PATH, datetime.now().isoformat(timespec="seconds"), recipe[1], self.batch_count, self._format_status(status))
         self.show_voice() if self.voice_running else self.show_dashboard()
 
