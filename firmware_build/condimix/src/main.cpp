@@ -332,9 +332,9 @@ void setup() {
   }
 
   for (int i = 0; i < num_step; i++) {
-    stepper[i].setSpeed(600);
+    stepper[i].setSpeed(60);
   }
-  stepper[6].setSpeed(650);
+  stepper[6].setSpeed(60);
   for (int i = 0; i < num_step; i++) {
     for (int j = 0; j < 4; j++) {
       pinMode(stepperPins[i][j], OUTPUT);
