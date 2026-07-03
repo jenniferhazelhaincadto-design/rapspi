@@ -4,35 +4,28 @@
 #include <EEPROM.h>
 #include <avr/wdt.h>
 
-const int stepsPerRevolution = 200;
+const int stepsPerRevolution = 100;
 const int num_step = 7;
 
+const int IRSensor = A5;
 const int buttonPin = 6;
 const int emergencyPin = 7;
 
 const int PUMP_COUNT = 4;                      
 const int pumpPins[PUMP_COUNT] = {2, 3, 4, 5};
 
-// Most relay boards used for pumps are active-low:
-//   LOW  = relay ON (pump powered)
-//   HIGH = relay OFF
-// If your driver is active-high, set this to 0.
-#define PUMP_ACTIVE_LOW 1
-static const uint8_t PUMP_ACTIVE_LEVEL = PUMP_ACTIVE_LOW ? LOW : HIGH;
-static const uint8_t PUMP_INACTIVE_LEVEL = PUMP_ACTIVE_LOW ? HIGH : LOW;
-
-const int HX711_dout_1 = 18;
-const int HX711_sck_1 = 19;
-const int HX711_dout_2 = 20;
-const int HX711_sck_2 = 21;
-const int HX711_dout_3 = 46;
-const int HX711_sck_3 = 47;
-const int HX711_dout_4 = 48;
-const int HX711_sck_4 = 49;
-const int HX711_dout_5 = 50;
-const int HX711_sck_5 = 51;
-const int HX711_dout_6 = 52;
-const int HX711_sck_6 = 53;
+const int HX711_dout_1 = 47;
+const int HX711_sck_1 = 46;
+const int HX711_dout_2 = 50;
+const int HX711_sck_2 = 48;
+const int HX711_dout_3 = 53;
+const int HX711_sck_3 = 52;
+const int HX711_dout_4 = 45;
+const int HX711_sck_4 = 44;
+const int HX711_dout_5 = 51;
+const int HX711_sck_5 = 49;
+const int HX711_dout_6 = 43;
+const int HX711_sck_6 = 42;
 
 const int calVal_eepromAdress_1 = 0;
 const int calVal_eepromAdress_2 = 0;
@@ -42,23 +35,23 @@ const int calVal_eepromAdress_5 = 0;
 const int calVal_eepromAdress_6 = 0;
 
 Stepper stepper[num_step] = {
-  Stepper(stepsPerRevolution, 22, 23, 24, 25),
-  Stepper(stepsPerRevolution, 26, 27, 28, 29),
-  Stepper(stepsPerRevolution, 30, 31, 32, 33),
-  Stepper(stepsPerRevolution, 34, 35, 36, 37),
-  Stepper(stepsPerRevolution, 38, 39, 40, 41),
-  Stepper(stepsPerRevolution, 42, 43, 44, 45),
-  Stepper(stepsPerRevolution, A8, A9, A10, A11)
+  Stepper(stepsPerRevolution, 15, 33, 23, 12),
+  Stepper(stepsPerRevolution, 25, 14, 32, 22),
+  Stepper(stepsPerRevolution, 34, 24, 17, 35),
+  Stepper(stepsPerRevolution, 19, 37, 27, 16),
+  Stepper(stepsPerRevolution, 29, 18, 36, 26),
+  Stepper(stepsPerRevolution, 38, 28, 21, 39),
+  Stepper(stepsPerRevolution, 30, 20, 13, 31)
 };
 
 const int stepperPins[num_step][4] = {
-  {22, 23, 24, 25},
-  {26, 27, 28, 29},
-  {30, 31, 32, 33},
-  {34, 35, 36, 37},
-  {38, 39, 40, 41},
-  {42, 43, 44, 45},
-  {A8, A9, A10, A11}
+  {15, 33, 23, 12},
+  {25, 14, 32, 22},
+  {34, 24, 17, 35},
+  {19, 37, 27, 16},
+  {29, 18, 36, 26},
+  {38, 28, 21, 39},
+  {30, 20, 13, 31}
 };
 
 HX711_ADC LoadCell_1(HX711_dout_1, HX711_sck_1);
@@ -93,7 +86,7 @@ bool pollStop() {
 
 void stopAllOutputs() {
   for (int i = 0; i < PUMP_COUNT; i++) {
-    digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
+    digitalWrite(pumpPins[i], LOW);
   }
   for (int i = 0; i < num_step; i++) {
     for (int j = 0; j < 4; j++) {
@@ -129,7 +122,7 @@ void runPump(int pumpIndex, unsigned long durationMs) {
   if (pumpIndex < 0 || pumpIndex >= PUMP_COUNT || durationMs == 0) {
     return;
   }
-  digitalWrite(pumpPins[pumpIndex], PUMP_ACTIVE_LEVEL);
+  digitalWrite(pumpPins[pumpIndex], HIGH);
   unsigned long startMs = millis();
   while (millis() - startMs < durationMs) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
@@ -137,7 +130,7 @@ void runPump(int pumpIndex, unsigned long durationMs) {
     }
     delay(5);
   }
-  digitalWrite(pumpPins[pumpIndex], PUMP_INACTIVE_LEVEL);
+  digitalWrite(pumpPins[pumpIndex], LOW);
 }
 
 bool updateLoadCells() {
@@ -184,12 +177,11 @@ void tareLoadCell(int index) {
 
 void reposition() {
   stopAllOutputs();
-  // Move stepper[6] to home position (fixed steps for homing)
-  for (int i = 0; i < 6; i++) {
+  while (digitalRead(IRSensor) == HIGH) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
     }
-    stepper[6].step(stepsPerRevolution * 2);
+    stepper[6].step(stepsPerRevolution);
   }
   currentContainer = 1;
 }
@@ -220,22 +212,17 @@ void moveToContainer(int target) {
   }
 }
 
-void dispenseDry(int targetGrams, int containerId, int stepsPerGram) {
+void dispenseDry(int targetGrams, int containerId) {
   if (targetGrams <= 0 || containerId < 1 || containerId > 6) {
     return;
   }
-  if (stepsPerGram <= 0) {
-    stepsPerGram = 2;
-  }
-
   stopAllOutputs();
-  long revolutions = (long)targetGrams * (long)stepsPerGram;
-  for (long i = 0; i < revolutions; i++) {
+  tareLoadCell(containerId);
+  while (getLoadCellData(containerId) < targetGrams) {
     if (emergencyCheck() || checkUserStop() || pollStop()) {
       return;
     }
     stepper[containerId - 1].step(-stepsPerRevolution);
-    delay(5);
   }
 }
 
@@ -254,9 +241,8 @@ void handleDispense(JsonDocument &doc) {
     }
     int id = item["id"] | 0;
     int grams = item["g"] | 0;
-    int stepsPerGram = item["steps_per_gram"] | 2;
     moveToContainer(id);
-    dispenseDry(grams, id, stepsPerGram);
+    dispenseDry(grams, id);
   }
 
   if (!stopRequested && !emergencyLatched) {
@@ -323,18 +309,19 @@ void handleLevels() {
 
 void setup() {
   Serial.begin(9600);
+  pinMode(IRSensor, INPUT);
   pinMode(buttonPin, INPUT_PULLUP);
   pinMode(emergencyPin, INPUT_PULLUP);
 
   for (int i = 0; i < PUMP_COUNT; i++) {
     pinMode(pumpPins[i], OUTPUT);
-    digitalWrite(pumpPins[i], PUMP_INACTIVE_LEVEL);
+    digitalWrite(pumpPins[i], LOW);
   }
 
   for (int i = 0; i < num_step; i++) {
-    stepper[i].setSpeed(60);
+    stepper[i].setSpeed(600);
   }
-  stepper[6].setSpeed(60);
+  stepper[6].setSpeed(650);
   for (int i = 0; i < num_step; i++) {
     for (int j = 0; j < 4; j++) {
       pinMode(stepperPins[i][j], OUTPUT);
@@ -415,7 +402,6 @@ void loop() {
     handleLevels();
   } else if (strcmp(cmd, "stop") == 0) {
     stopRequested = true;
-    stopAllOutputs();
     Serial.println("STATUS:STOPPED");
   } else {
     Serial.println("STATUS:ERROR");
