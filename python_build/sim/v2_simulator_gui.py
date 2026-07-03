@@ -454,70 +454,6 @@ class SimulatorGUI:
         self._debug("RX timeout waiting for levels data")
         return None
 
-    def _serial_send_wait_ir(self, timeout: float = 1.2) -> Optional[bool]:
-        if not self.serial:
-            return None
-        self._serial_read_failed = False
-        payload = _legacy_to_json_payload('{"cmd":"ir"}\n')
-        self._debug(f"TX ({self.serial.port} @ {self.serial.baud}): {payload.strip()}")
-        try:
-            self.serial.send(payload)
-        except Exception as exc:
-            self._debug(f"Serial send error: {exc}")
-            return None
-
-        start = time.time()
-        while time.time() - start < timeout:
-            line = self._serial_read_line_safe()
-            if self._serial_read_failed:
-                return None
-            if not line:
-                continue
-            self._debug(f"RX: {line}")
-            if line.startswith("STATUS:"):
-                continue
-            if not line.startswith("{"):
-                continue
-            try:
-                data = json.loads(line)
-            except Exception:
-                continue
-            if not isinstance(data, dict) or data.get("type") != "ir":
-                continue
-            detected = data.get("detected")
-            if isinstance(detected, bool):
-                return detected
-            raw = data.get("raw")
-            if raw in (0, 1):
-                return int(raw) == 0
-
-        self._debug("RX timeout waiting for IR data")
-        return None
-
-    def show_container_not_detected(self, title: str = "Container Not Detected", message: str = "") -> None:
-        self.clear()
-        self._set_background("dashboard/image_1.png")
-        Label(self.root, text=title, font=("Quicksand", 22, "bold")).place(x=0, y=220, width=480, height=60)
-        if message:
-            Label(self.root, text=message, font=("Quicksand", 14, "bold"), wraplength=420, justify="center").place(x=30, y=290, width=420, height=80)
-        Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
-
-    def _guard_container_detected(self, action) -> None:
-        detected = self._serial_send_wait_ir()
-        if detected is False:
-            self.show_container_not_detected()
-            return
-
-        if detected is None:
-            self._debug("IR check unavailable; showing sensor unavailable page")
-            self.show_container_not_detected(
-                title="IR Sensor Unavailable",
-                message="The dashboard could not read the IR sensor. Check the sensor connection or serial link, then go back.",
-            )
-            return
-
-        action()
-
     def _serial_send_no_wait(self, payload: str) -> None:
         if not self.serial:
             return
@@ -610,9 +546,9 @@ class SimulatorGUI:
         row_gap = 20
 
         Button(self.root, bg=btn_bg, fg=fg, text="Recipe\nMenu", font=("Quicksand", 18, "bold"),
-               command=lambda: self._guard_container_detected(self.show_recipe_menu)).place(x=left_x, y=top_y, width=btn_w, height=btn_h)
+               command=self.show_recipe_menu).place(x=left_x, y=top_y, width=btn_w, height=btn_h)
         Button(self.root, bg=btn_bg, fg=fg, text="Dispense\nIngredient", font=("Quicksand", 18, "bold"),
-             command=lambda: self._guard_container_detected(self.show_single_dispense)).place(x=right_x, y=top_y, width=btn_w, height=btn_h)
+             command=self.show_single_dispense).place(x=right_x, y=top_y, width=btn_w, height=btn_h)
 
         row2_y = top_y + btn_h + row_gap
         Button(self.root, bg=btn_bg, fg=fg, text="Cleaning\nMode", font=("Quicksand", 18, "bold"),
@@ -633,7 +569,7 @@ class SimulatorGUI:
                command=self.show_lock).place(x=right_x, y=row4_y, width=btn_w, height=btn_h)
 
         Button(self.root, bg=btn_bg, fg=fg, text="Voice PTT", font=("Quicksand", 18, "bold"),
-               command=lambda: self._guard_container_detected(self.show_voice)).place(x=150, y=row4_y + btn_h + 20, width=btn_w, height=btn_h)
+               command=self.show_voice).place(x=150, y=row4_y + btn_h + 20, width=btn_w, height=btn_h)
 
     def show_recipe_menu(self):
         self.clear()
