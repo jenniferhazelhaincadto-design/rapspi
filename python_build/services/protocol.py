@@ -4,7 +4,11 @@ from typing import List, Dict
 
 def build_dispense_payload(recipe: str, batches: int, dry: List[Dict], wet: List[Dict]) -> str:
     dry_items = [
-        {"id": int(item.get("id", 0)), "g": int(item.get("g", 0))}
+        {
+            "id": int(item.get("id", 0)),
+            "g": int(item.get("g", 0)),
+            "steps_per_gram": int(item.get("steps_per_gram", 2)),
+        }
         for item in dry
     ]
     wet_items = [
