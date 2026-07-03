@@ -26,14 +26,14 @@ const int HX711_dout_1 = 18;
 const int HX711_sck_1 = 19;
 const int HX711_dout_2 = 20;
 const int HX711_sck_2 = 21;
-const int HX711_dout_3 = ;
-const int HX711_sck_3 = 52;
-const int HX711_dout_4 = 45;
-const int HX711_sck_4 = 44;
-const int HX711_dout_5 = 51;
-const int HX711_sck_5 = 49;
-const int HX711_dout_6 = 43;
-const int HX711_sck_6 = 42;
+const int HX711_dout_3 = A8;
+const int HX711_sck_3 = A9;
+const int HX711_dout_4 = A10;
+const int HX711_sck_4 = A11;
+const int HX711_dout_5 = 50;
+const int HX711_sck_5 = 51;
+const int HX711_dout_6 = 52;
+const int HX711_sck_6 = 53;
 
 const int calVal_eepromAdress_1 = 0;
 const int calVal_eepromAdress_2 = 0;
@@ -49,7 +49,7 @@ Stepper(stepsPerRevolution, 30, 31, 32, 33),
 Stepper(stepsPerRevolution, 34, 35, 36, 37),
 Stepper(stepsPerRevolution, 38, 39, 40, 41),
 Stepper(stepsPerRevolution, 42, 43, 44, 45),
-Stepper(stepsPerRevolution, A8, A9, A10, A11)
+Stepper(stepsPerRevolution, 46, 47, 48, 49)
 };
 
 const int stepperPins[num_step][4] = {
