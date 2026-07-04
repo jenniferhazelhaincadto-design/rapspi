@@ -365,6 +365,18 @@ class SimulatorGUI:
             return
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {message}", flush=True)
 
+    def _estimate_dry_timeout(self, dry_items) -> float:
+        # Firmware performs one full revolution per unit of (amount * steps_per_gram)
+        # and uses setSpeed(60), so each revolution is about 1 second plus loop overhead.
+        total_revolutions = 0.0
+        for item in dry_items or []:
+            grams = float(item.get("g") or 0.0)
+            steps_per_gram = float(item.get("steps_per_gram") or 2.0)
+            if grams > 0 and steps_per_gram > 0:
+                total_revolutions += grams * steps_per_gram
+        estimated_seconds = total_revolutions * 1.05
+        return max(30.0, estimated_seconds + 30.0)
+
     def _serial_read_line_safe(self) -> Optional[str]:
         if not self.serial:
             return None
