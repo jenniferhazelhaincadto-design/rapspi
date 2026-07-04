@@ -455,44 +455,9 @@ class SimulatorGUI:
         return None
 
     def _serial_send_wait_ir(self, timeout: float = 1.2) -> Optional[bool]:
-        if not self.serial:
-            return None
-        self._serial_read_failed = False
-        payload = _legacy_to_json_payload('{"cmd":"ir"}\n')
-        self._debug(f"TX ({self.serial.port} @ {self.serial.baud}): {payload.strip()}")
-        try:
-            self.serial.send(payload)
-        except Exception as exc:
-            self._debug(f"Serial send error: {exc}")
-            return None
-
-        start = time.time()
-        while time.time() - start < timeout:
-            line = self._serial_read_line_safe()
-            if self._serial_read_failed:
-                return None
-            if not line:
-                continue
-            self._debug(f"RX: {line}")
-            if line.startswith("STATUS:"):
-                continue
-            if not line.startswith("{"):
-                continue
-            try:
-                data = json.loads(line)
-            except Exception:
-                continue
-            if not isinstance(data, dict) or data.get("type") != "ir":
-                continue
-            detected = data.get("detected")
-            if isinstance(detected, bool):
-                return detected
-            raw = data.get("raw")
-            if raw in (0, 1):
-                return int(raw) == 0
-
-        self._debug("RX timeout waiting for IR data")
-        return None
+        del timeout
+        self._debug("IR integration disabled; treating container as detected")
+        return True
 
     def show_container_not_detected(self, title: str = "Container Not Detected", message: str = "") -> None:
         self.clear()
@@ -503,19 +468,6 @@ class SimulatorGUI:
         Button(self.root, text="Back", font=("Quicksand", 18, "bold"), command=self.show_dashboard).place(x=140, y=700, width=200, height=70)
 
     def _guard_container_detected(self, action) -> None:
-        detected = self._serial_send_wait_ir()
-        if detected is False:
-            self.show_container_not_detected()
-            return
-
-        if detected is None:
-            self._debug("IR check unavailable; showing sensor unavailable page")
-            self.show_container_not_detected(
-                title="IR Sensor Unavailable",
-                message="The dashboard could not read the IR sensor. Check the sensor connection or serial link, then go back.",
-            )
-            return
-
         action()
 
     def _serial_send_no_wait(self, payload: str) -> None:
