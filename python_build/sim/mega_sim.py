@@ -2,6 +2,7 @@ import os
 import pty
 import select
 import time
+import json
 
 
 def _now():
@@ -88,6 +89,44 @@ def _parse_items(text):
     return items
 
 
+def _parse_json_command(line):
+    try:
+        payload = json.loads(line)
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    cmd = str(payload.get("cmd", "")).strip().lower()
+    if cmd in ("stop", "clean", "levels"):
+        return (cmd, None)
+
+    if cmd == "dispense":
+        items = []
+        for item in payload.get("dry", []) or []:
+            try:
+                cid = int(item.get("id", 0))
+                grams = float(item.get("g", 0))
+            except Exception:
+                continue
+            if cid > 0 and grams > 0:
+                items.append(("D", cid, grams))
+
+        for item in payload.get("wet", []) or []:
+            try:
+                cid = int(item.get("id", 0))
+                ml = float(item.get("ml", 0))
+            except Exception:
+                continue
+            if cid > 0 and ml > 0:
+                items.append(("W", cid, ml))
+
+        return ("dispense", items)
+
+    return None
+
+
 def main():
     master_fd, slave_fd = pty.openpty()
     slave_name = os.ttyname(slave_fd)
@@ -108,6 +147,26 @@ def main():
                     line = line.strip()
                     if not line:
                         continue
+
+                    parsed = _parse_json_command(line)
+                    if parsed:
+                        cmd, items = parsed
+                        if cmd == "stop":
+                            stop_flag[0] = True
+                            _write_line(master_fd, "STATUS:STOPPED")
+                            continue
+                        if cmd == "clean":
+                            stop_flag[0] = False
+                            _handle_clean(master_fd)
+                            continue
+                        if cmd == "levels":
+                            _handle_levels(master_fd, dry_levels)
+                            continue
+                        if cmd == "dispense":
+                            stop_flag[0] = False
+                            _handle_dispense_items(master_fd, items or [], dry_levels, stop_flag)
+                            continue
+
                     upper = line.upper()
                     if upper == "STOP":
                         stop_flag[0] = True
