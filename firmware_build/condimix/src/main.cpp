@@ -16,23 +16,23 @@ static const uint8_t PUMP_INACTIVE_LEVEL = PUMP_ACTIVE_LOW ? HIGH : LOW;
 
 // Keep updated motor pin ordering from origin/main.
 Stepper stepper[num_step] = {
-  Stepper(stepsPerRevolution, 46, 47, 48, 49),
-  Stepper(stepsPerRevolution, 22, 23, 24, 25),
   Stepper(stepsPerRevolution, 26, 27, 28, 29),
   Stepper(stepsPerRevolution, 30, 31, 32, 33),
   Stepper(stepsPerRevolution, 34, 35, 36, 37),
   Stepper(stepsPerRevolution, 38, 39, 40, 41),
-  Stepper(stepsPerRevolution, 42, 43, 44, 45)
+  Stepper(stepsPerRevolution, 42, 43, 44, 45),
+  Stepper(stepsPerRevolution, 46, 47, 48, 49),
+  Stepper(stepsPerRevolution, 22, 23, 24, 25)
 };
 
 const int stepperPins[num_step][4] = {
-  {46, 47, 48, 49},
-  {22, 23, 24, 25},
   {26, 27, 28, 29},
   {30, 31, 32, 33},
   {34, 35, 36, 37},
   {38, 39, 40, 41},
-  {42, 43, 44, 45}
+  {42, 43, 44, 45},
+  {46, 47, 48, 49},
+  {22, 23, 24, 25}
 };
 
 bool stopRequested = false;
