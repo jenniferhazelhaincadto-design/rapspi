@@ -1,4 +1,5 @@
 import time
+import json
 from typing import Optional
 
 try:
@@ -85,6 +86,13 @@ class SerialLink:
                 continue
             if line.startswith("STATUS:"):
                 continue
+            if line.startswith("{"):
+                try:
+                    data = json.loads(line)
+                except Exception:
+                    data = None
+                if isinstance(data, dict) and data.get("type") == "levels":
+                    return data
             if line.startswith("LEVELS,"):
                 items = []
                 parts = line[len("LEVELS,"):].split(";")

@@ -14,25 +14,25 @@ const int pumpPins[PUMP_COUNT] = {50, 51, 52, 53};
 static const uint8_t PUMP_ACTIVE_LEVEL = PUMP_ACTIVE_LOW ? LOW : HIGH;
 static const uint8_t PUMP_INACTIVE_LEVEL = PUMP_ACTIVE_LOW ? HIGH : LOW;
 
-// Keep updated motor pin ordering from origin/main.
+// Keep container ID mapping aligned with UI/database IDs (Dry1..Dry6).
 Stepper stepper[num_step] = {
+  Stepper(stepsPerRevolution, 22, 23, 24, 25),
   Stepper(stepsPerRevolution, 26, 27, 28, 29),
   Stepper(stepsPerRevolution, 30, 31, 32, 33),
   Stepper(stepsPerRevolution, 34, 35, 36, 37),
   Stepper(stepsPerRevolution, 38, 39, 40, 41),
   Stepper(stepsPerRevolution, 42, 43, 44, 45),
-  Stepper(stepsPerRevolution, 46, 47, 48, 49),
-  Stepper(stepsPerRevolution, 22, 23, 24, 25)
+  Stepper(stepsPerRevolution, 46, 47, 48, 49)
 };
 
 const int stepperPins[num_step][4] = {
+  {22, 23, 24, 25},
   {26, 27, 28, 29},
   {30, 31, 32, 33},
   {34, 35, 36, 37},
   {38, 39, 40, 41},
   {42, 43, 44, 45},
-  {46, 47, 48, 49},
-  {22, 23, 24, 25}
+  {46, 47, 48, 49}
 };
 
 bool stopRequested = false;
@@ -159,7 +159,8 @@ void dispenseDry(int targetGrams, int containerId, int stepsPerGram) {
 }
 
 void handleDispense(JsonDocument &doc) {
-  if (emergencyCheck()) {
+  if (emergencyCheck() || emergencyLatched) {
+    Serial.println("STATUS:EMERGENCY");
     return;
   }
   stopRequested = false;
@@ -203,7 +204,8 @@ void handleDispense(JsonDocument &doc) {
 }
 
 void handleClean() {
-  if (emergencyCheck()) {
+  if (emergencyCheck() || emergencyLatched) {
+    Serial.println("STATUS:EMERGENCY");
     return;
   }
   stopRequested = false;
@@ -270,10 +272,7 @@ void setup() {
 }
 
 void loop() {
-  if (emergencyCheck()) {
-    delay(50);
-    return;
-  }
+  emergencyCheck();
 
   String line = readLine();
   if (line.length() == 0) {
@@ -288,6 +287,11 @@ void loop() {
   }
 
   const char *cmd = doc["cmd"] | "";
+  if (emergencyLatched && strcmp(cmd, "stop") != 0) {
+    Serial.println("STATUS:EMERGENCY");
+    return;
+  }
+
   if (strcmp(cmd, "dispense") == 0) {
     handleDispense(doc);
   } else if (strcmp(cmd, "clean") == 0) {

@@ -671,7 +671,8 @@ class SimulatorGUI:
 
         payload = build_dispense_payload(recipe[1], self.batch_count, dry_list, wet_list)
         wet_seconds = sum((float(item.get("ml") or 0.0) * float(item.get("ms_per_ml") or 0.0)) for item in wet_list) / 1000.0
-        timeout_s = max(30.0, wet_seconds + (180.0 if dry_list else 15.0))
+        dry_seconds = self._estimate_dry_timeout(dry_list)
+        timeout_s = max(30.0, dry_seconds + wet_seconds + 15.0)
         status = self._serial_send_wait_status(payload, timeout=timeout_s)
         if status == "STATUS:OK":
             used_dry = [(item["id"], item["g"]) for item in dry_list]
@@ -1415,7 +1416,9 @@ class SimulatorGUI:
                 wet_seconds = (float(amount) * float(selection.get("ms_per_ml") or 0.0)) / 1000.0
                 timeout_s = max(30.0, wet_seconds + 15.0)
             else:
-                timeout_s = 180.0
+                timeout_s = self._estimate_dry_timeout([
+                    {"g": amount, "steps_per_gram": selection.get("steps_per_gram") or 2}
+                ])
             status = self._serial_send_wait_status(payload, timeout=timeout_s)
             if status == "STATUS:OK" and selection["type"] == "dry":
                 db.apply_dry_dispense(DB_PATH, [(selection["id"], amount)])
@@ -2116,7 +2119,10 @@ class SimulatorGUI:
                 amount,
                 steps_per_gram=steps,
             )
-            status = self._serial_send_wait_status(payload, timeout=180.0)
+            timeout_s = self._estimate_dry_timeout([
+                {"g": amount, "steps_per_gram": steps}
+            ])
+            status = self._serial_send_wait_status(payload, timeout=timeout_s)
             if status == "STATUS:OK":
                 db.apply_dry_dispense(DB_PATH, [(cid, amount)])
         else:
